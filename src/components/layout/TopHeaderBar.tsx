@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, ChevronDown, Moon, Search, Sun } from 'lucide-react';
+import { Bell, ChevronDown, Film, Moon, Search, Sun } from 'lucide-react';
 import {
   ExamPacket,
   JenjangFilter,
@@ -19,6 +19,7 @@ interface TopHeaderBarProps {
   onSetUserRole: (role: UserRole) => void;
   darkMode: boolean;
   onToggleDarkMode: () => void;
+  onOpenShowcase?: () => void;
 }
 
 export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
@@ -31,6 +32,7 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   onSetUserRole,
   darkMode,
   onToggleDarkMode,
+  onOpenShowcase,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -128,6 +130,18 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
             </button>
           ))}
         </div>
+
+        {/* Motion Graphics Community Video Showcase Button */}
+        {onOpenShowcase && (
+          <button
+            onClick={onOpenShowcase}
+            title="Putar & Rekam Video Generative Motion Graphics (Showcase Komunitas)"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-[#211955] hover:bg-[#2d2270] text-[#F8B478] text-xs font-extrabold transition shadow-card whitespace-nowrap"
+          >
+            <Film className="w-4 h-4 shrink-0" />
+            <span>Video Showcase</span>
+          </button>
+        )}
 
         {/* Light / Dark Mode Toggle */}
         <button

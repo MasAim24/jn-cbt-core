@@ -36,6 +36,7 @@ interface DashboardViewProps {
   students: Student[];
   submissions: ExamSubmission[];
   onRefreshToken: (scheduleId: string) => void;
+  onOpenShowcase?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -48,6 +49,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   students,
   submissions,
   onRefreshToken,
+  onOpenShowcase,
 }) => {
   const [copiedToken, setCopiedToken] = useState(false);
   const [statPeriod, setStatPeriod] = useState<'Hari Ini' | 'Minggu Ini' | 'Semester Ganjil'>(
@@ -188,6 +190,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span>Buka Bank Soal</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
+              {onOpenShowcase && (
+                <button
+                  onClick={onOpenShowcase}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1E1645]/10 hover:bg-[#1E1645]/20 text-[#1E1645] text-xs font-extrabold transition"
+                >
+                  <span>🎬 Video Showcase Komunitas</span>
+                </button>
+              )}
             </div>
           </div>
 

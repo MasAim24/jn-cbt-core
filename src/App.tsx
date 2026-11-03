@@ -28,6 +28,7 @@ import { DataPesertaKartuView } from './components/DataPesertaKartuView';
 import { RekapNilaiView } from './components/RekapNilaiView';
 import { PengaturanView } from './components/PengaturanView';
 import { StudentExamPortal } from './components/StudentExamPortal';
+import { MotionGraphicsShowcaseModal } from './components/showcase/MotionGraphicsShowcaseModal';
 
 const STORAGE_KEYS = {
   PACKETS: 'jn_cbt_packets_v2',
@@ -55,6 +56,7 @@ export function App() {
   const [userRole, setUserRole] = useState<UserRole>('admin');
   const [studentSimPacketId, setStudentSimPacketId] = useState<string | undefined>(undefined);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [showMotionShowcase, setShowMotionShowcase] = useState(false);
   const [darkMode, setDarkMode] = useState<boolean>(() =>
     loadFromStorage(STORAGE_KEYS.THEME, false)
   );
@@ -270,6 +272,7 @@ export function App() {
             onSetUserRole={setUserRole}
             darkMode={darkMode}
             onToggleDarkMode={() => setDarkMode((d) => !d)}
+            onOpenShowcase={() => setShowMotionShowcase(true)}
           />
 
           {/* Active View Content */}
@@ -299,6 +302,7 @@ export function App() {
                     students={students}
                     submissions={submissions}
                     onRefreshToken={handleRefreshToken}
+                    onOpenShowcase={() => setShowMotionShowcase(true)}
                   />
                 )}
 
@@ -369,6 +373,10 @@ export function App() {
       </div>
 
       <GuideModal isOpen={showGuideModal} onClose={() => setShowGuideModal(false)} />
+      <MotionGraphicsShowcaseModal
+        isOpen={showMotionShowcase}
+        onClose={() => setShowMotionShowcase(false)}
+      />
     </div>
   );
 }

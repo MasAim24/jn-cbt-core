@@ -1,0 +1,279 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   1. PRIMITIVE TOKENS (Color Scale 50 - 950)
+   Mengikuti standar arsitektur token 3-layer: Primitive -> Semantic -> Component
+   ========================================================================== */
+:root {
+  /* Deep Royal Indigo Scale (Sidebar & Statistics Card pada gambar referensi) */
+  --indigo-50:  #f2f0ff;
+  --indigo-100: #e5e0ff;
+  --indigo-200: #cdc2ff;
+  --indigo-300: #aa96ff;
+  --indigo-400: #8362ff;
+  --indigo-500: #5d34f2;
+  --indigo-600: #491ed9;
+  --indigo-700: #3b16b3;
+  --indigo-800: #2d1875;
+  --indigo-900: #211955;
+  --indigo-950: #150f3a;
+
+  /* Warm Peach / Apricot Scale (Hero Greeting Banner pada gambar referensi) */
+  --peach-50:   #fff8f1;
+  --peach-100:  #feecdc;
+  --peach-200:  #fcd9bd;
+  --peach-300:  #fdba8c;
+  --peach-400:  #f8b478;
+  --peach-500:  #f39c52;
+  --peach-600:  #e07c2b;
+  --peach-700:  #b85d19;
+
+  /* Neutral Canvas & Typography Scale */
+  --neutral-50:  #f6f8fc;
+  --neutral-100: #eef1f8;
+  --neutral-200: #e2e6f2;
+  --neutral-300: #cbd2e6;
+  --neutral-400: #969fb8;
+  --neutral-500: #646b87;
+  --neutral-600: #4b5169;
+  --neutral-700: #363a4f;
+  --neutral-800: #232638;
+  --neutral-900: #17152b;
+  --neutral-950: #0e0c1d;
+
+  /* Jenjang & Status Accent Scales (MTs, Aliyah, Wustho, 'Ulya) */
+  --amber-50:   #fffbeb;
+  --amber-100:  #fef3c7;
+  --amber-400:  #fbbf24;
+  --amber-500:  #f59e0b;
+  --amber-600:  #d97706;
+
+  --teal-50:    #ecfffb;
+  --teal-100:   #c9fff2;
+  --teal-300:   #55e5c7;
+  --teal-400:   #27c8aa;
+  --teal-500:   #14b894;
+  --teal-600:   #0b987c;
+  --teal-700:   #087963;
+
+  --coral-50:   #fff1f0;
+  --coral-100:  #ffe0de;
+  --coral-400:  #ff7870;
+  --coral-500:  #f0544f;
+  --coral-600:  #d93834;
+}
+
+/* ==========================================================================
+   2. SEMANTIC TOKENS (Light Mode & Dark Mode)
+   Komposisi 60-30-10:
+   - 60% Dominant Neutral (--bg-board-shell, --bg-surface, --bg-elevated)
+   - 30% Secondary Structure (--sidebar-bg, --text-primary, --border-subtle)
+   - 10% Intentional Accents (--brand-primary, --peach-400, --teal-500, --coral-500)
+   ========================================================================== */
+:root {
+  color-scheme: light;
+
+  --bg-outer-frame: #f7e5d0;
+  --bg-board-shell: #ffffff;
+  --bg-surface: var(--neutral-50);
+  --bg-elevated: #ffffff;
+  --bg-muted: var(--neutral-100);
+
+  --text-primary: var(--neutral-900);
+  --text-secondary: var(--neutral-600);
+  --text-placeholder: var(--neutral-500);
+  --text-on-brand: #ffffff;
+  --text-on-peach: #1e1645;
+  --brand-text-accent: var(--indigo-900);
+
+  --border-subtle: var(--neutral-200);
+  --border-focus: var(--indigo-500);
+
+  --brand-primary: var(--indigo-900);
+  --brand-primary-hover: var(--indigo-800);
+  --brand-accent: var(--indigo-500);
+
+  --status-success: var(--teal-600);
+  --status-warning: var(--amber-600);
+  --status-error: var(--coral-600);
+  --status-info: var(--indigo-500);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-outer-frame: #090814;
+  --bg-board-shell: #141129;
+  --bg-surface: #181530;
+  --bg-elevated: #211d3f;
+  --bg-muted: #29244d;
+
+  --text-primary: #f4f3ff;
+  --text-secondary: #c0bce0;
+  --text-placeholder: #928db8;
+  --text-on-brand: #ffffff;
+  --text-on-peach: #1a1238;
+  --brand-text-accent: #b8a8ff;
+
+  --border-subtle: #332d5e;
+  --border-focus: var(--indigo-400);
+
+  --brand-primary: var(--indigo-500);
+  --brand-primary-hover: var(--indigo-400);
+  --brand-accent: var(--peach-400);
+
+  --status-success: var(--teal-400);
+  --status-warning: var(--amber-400);
+  --status-error: var(--coral-400);
+  --status-info: var(--indigo-300);
+}
+
+/* ==========================================================================
+   3. COMPONENT TOKENS
+   ========================================================================== */
+:root {
+  --sidebar-bg: var(--indigo-900);
+  --sidebar-text: #ffffff;
+  --hero-peach-bg: linear-gradient(135deg, #f9b87c 0%, #f5a660 100%);
+  --stat-dark-card-bg: var(--indigo-900);
+  --button-primary-bg: var(--brand-primary);
+  --button-primary-text: var(--text-on-brand);
+  --card-bg: var(--bg-elevated);
+}
+
+/* ==========================================================================
+   4. BASE TYPOGRAPHY, OPTICAL BALANCE & ARABIC KITAB SUPPORT
+   ========================================================================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-placeholder);
+  opacity: 1;
+}
+
+/* Arabic / Kitab Kuning Typography (Amiri & Scheherazade New) */
+.font-kitab {
+  font-family: 'Scheherazade New', 'Amiri', 'Traditional Arabic', serif;
+  line-height: 2.15;
+  letter-spacing: 0;
+}
+
+/* Optical Balance (Geometry Over Math - SKILL.md Section 1) */
+.optical-play-icon {
+  transform: translateX(1.5px);
+}
+
+.optical-circle-overshoot {
+  transform: scale(1.03);
+}
+
+/* ==========================================================================
+   Signature Sidebar Active Cutout / Notch (1:1 dengan gambar referensi Helper)
+   - Pada mobile (<1024px): Berbentuk tombol putih penuh di dalam bar.
+   - Pada desktop (>=1024px): Berbentuk lekukan putih dari sisi KIRI sidebar (x=0)
+     hingga x=70px pada sidebar selebar 82px, dengan padding-left 12px agar
+     pusat optik ikon tetap terkunci di sumbu tengah x=41px.
+   ========================================================================== */
+.sidebar-notch-active {
+  position: relative;
+  background-color: var(--bg-board-shell);
+  color: var(--indigo-900);
+  border-radius: 14px;
+  box-shadow: none !important;
+}
+
+[data-theme="dark"] .sidebar-notch-active {
+  color: var(--peach-400);
+}
+
+@media (min-width: 1024px) {
+  .sidebar-notch-active {
+    width: 70px;
+    margin-left: 0;
+    margin-right: auto;
+    padding-left: 12px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-top-right-radius: 9999px;
+    border-bottom-right-radius: 9999px;
+  }
+
+  .sidebar-notch-active::before {
+    content: "";
+    position: absolute;
+    top: -16px;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    background: transparent;
+    border-bottom-left-radius: 16px;
+    box-shadow: -8px 8px 0 8px var(--bg-board-shell);
+    pointer-events: none;
+  }
+
+  .sidebar-notch-active::after {
+    content: "";
+    position: absolute;
+    bottom: -16px;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    background: transparent;
+    border-top-left-radius: 16px;
+    box-shadow: -8px -8px 0 8px var(--bg-board-shell);
+    pointer-events: none;
+  }
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(107, 114, 142, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(107, 114, 142, 0.45);
+}
+
+/* ==========================================================================
+   5. PRINT MEDIA RULES (Cetak Kartu Peserta, Daftar Hadir, & Rekap Nilai)
+   ========================================================================== */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+}

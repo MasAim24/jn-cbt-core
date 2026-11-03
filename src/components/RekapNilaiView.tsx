@@ -18,6 +18,7 @@ import {
   RekapAnalysisGrid,
 } from './rekap/RekapSubComponents';
 import { CornerTableSticker } from './common/CornerStickerBadge';
+import { OfficialPdfModal } from './common/OfficialPdfModal';
 
 interface RekapNilaiViewProps {
   submissions: ExamSubmission[];
@@ -41,6 +42,7 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'TABEL' | 'ANALISIS'>('TABEL');
+  const [showPdfModal, setShowPdfModal] = useState(false);
 
   const baseByJenjang = submissions.filter((s) =>
     selectedJenjang === 'ALL' ? true : s.jenjang === selectedJenjang
@@ -172,11 +174,11 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
             <span>Export Excel / CSV</span>
           </button>
           <button
-            onClick={() => window.print()}
+            onClick={() => setShowPdfModal(true)}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold transition shadow-sm"
           >
             <Printer className="w-4 h-4" />
-            <span>Cetak Rekap Resmi (PDF)</span>
+            <span>Output PDF Murni &amp; Cetak Rekap</span>
           </button>
         </div>
       </div>
@@ -392,6 +394,15 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
           onClose={() => setGradingItem(null)}
         />
       )}
+
+      <OfficialPdfModal
+        isOpen={showPdfModal}
+        onClose={() => setShowPdfModal(false)}
+        docType="REKAP_NILAI"
+        settings={settings}
+        selectedJenjang={selectedJenjang}
+        submissions={filtered}
+      />
     </div>
   );
 };

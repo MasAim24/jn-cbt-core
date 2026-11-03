@@ -29,6 +29,10 @@ import { RekapNilaiView } from './components/RekapNilaiView';
 import { PengaturanView } from './components/PengaturanView';
 import { StudentExamPortal } from './components/StudentExamPortal';
 import { MotionGraphicsShowcaseModal } from './components/showcase/MotionGraphicsShowcaseModal';
+import {
+  AuthenticatedSession,
+  LoginPortalView,
+} from './components/auth/LoginPortalView';
 
 const STORAGE_KEYS = {
   PACKETS: 'jn_cbt_packets_v2',
@@ -38,6 +42,7 @@ const STORAGE_KEYS = {
   SUBMISSIONS: 'jn_cbt_submissions_v2',
   SETTINGS: 'jn_cbt_settings_v2',
   THEME: 'jn_cbt_theme_v2',
+  AUTH_SESSION: 'jn_cbt_auth_session_v2',
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -51,10 +56,23 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 export function App() {
+  const [authSession, setAuthSession] = useState<AuthenticatedSession | null>(() =>
+    loadFromStorage<AuthenticatedSession | null>(STORAGE_KEYS.AUTH_SESSION, null)
+  );
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [selectedJenjang, setSelectedJenjang] = useState<JenjangFilter>('ALL');
-  const [userRole, setUserRole] = useState<UserRole>('admin');
-  const [studentSimPacketId, setStudentSimPacketId] = useState<string | undefined>(undefined);
+  const [userRole, setUserRole] = useState<UserRole>(() => {
+    const saved = loadFromStorage<AuthenticatedSession | null>(STORAGE_KEYS.AUTH_SESSION, null);
+    return saved?.role || 'admin';
+  });
+  const [studentSimPacketId, setStudentSimPacketId] = useState<string | undefined>(() => {
+    const saved = loadFromStorage<AuthenticatedSession | null>(STORAGE_KEYS.AUTH_SESSION, null);
+    return saved?.packetId;
+  });
+  const [studentSimStudentId, setStudentSimStudentId] = useState<string | undefined>(() => {
+    const saved = loadFromStorage<AuthenticatedSession | null>(STORAGE_KEYS.AUTH_SESSION, null);
+    return saved?.studentId;
+  });
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [showMotionShowcase, setShowMotionShowcase] = useState(false);
   const [darkMode, setDarkMode] = useState<boolean>(() =>
@@ -107,6 +125,14 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    if (authSession) {
+      localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify(authSession));
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+    }
+  }, [authSession]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.THEME, JSON.stringify(darkMode));
@@ -192,6 +218,25 @@ export function App() {
     setUserRole('siswa');
   };
 
+  const handleLoginSuccess = (session: AuthenticatedSession) => {
+    setAuthSession(session);
+    setUserRole(session.role);
+    if (session.role === 'siswa') {
+      setStudentSimPacketId(session.packetId);
+      setStudentSimStudentId(session.studentId);
+    } else if (session.role === 'guru') {
+      setActiveTab('bank-soal');
+    } else {
+      setActiveTab('dashboard');
+    }
+  };
+
+  const handleLogout = () => {
+    setAuthSession(null);
+    setStudentSimPacketId(undefined);
+    setStudentSimStudentId(undefined);
+  };
+
   const handleResetDemoData = () => {
     setPackets(INITIAL_PACKETS);
     setSchedules(INITIAL_SCHEDULES);
@@ -232,6 +277,19 @@ export function App() {
     URL.revokeObjectURL(url);
   };
 
+  if (!authSession) {
+    return (
+      <LoginPortalView
+        students={students}
+        teachers={teachers}
+        schedules={schedules}
+        packets={packets}
+        settings={currentSettings}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
+
   return (
     <div
       className="relative min-h-screen w-full p-2 sm:p-4 lg:p-6 transition-colors duration-300"
@@ -258,6 +316,7 @@ export function App() {
           onSetUserRole={setUserRole}
           onOpenStudentSim={() => handleOpenStudentSim()}
           onOpenGuide={() => setShowGuideModal(true)}
+          onLogout={handleLogout}
         />
 
         {/* Inner Content Surface Canvas (#F6F8FC in light mode) */}
@@ -273,6 +332,8 @@ export function App() {
             darkMode={darkMode}
             onToggleDarkMode={() => setDarkMode((d) => !d)}
             onOpenShowcase={() => setShowMotionShowcase(true)}
+            authSession={authSession}
+            onLogout={handleLogout}
           />
 
           {/* Active View Content */}
@@ -283,9 +344,14 @@ export function App() {
                 schedules={schedules}
                 students={students}
                 initialPacketId={studentSimPacketId}
+                initialStudentId={studentSimStudentId}
                 onExitPortal={() => {
-                  setUserRole('admin');
-                  setActiveTab('rekap-nilai');
+                  if (authSession.role === 'siswa') {
+                    handleLogout();
+                  } else {
+                    setUserRole(authSession.role);
+                    setActiveTab('rekap-nilai');
+                  }
                 }}
                 onSubmitExamResult={handleUpdateSubmission}
               />
@@ -309,6 +375,7 @@ export function App() {
                 {activeTab === 'bank-soal' && (
                   <BankSoalView
                     packets={packets}
+                    settings={currentSettings}
                     selectedJenjang={selectedJenjang}
                     onSelectJenjang={setSelectedJenjang}
                     onSavePacket={handleSavePacket}

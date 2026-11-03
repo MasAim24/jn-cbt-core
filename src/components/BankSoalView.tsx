@@ -13,16 +13,19 @@ import {
   JenjangFilter,
   Question,
   QuestionType,
+  SchoolSettings,
 } from '../types/cbt';
-import { JENJANG_META } from '../data/initialData';
+import { INITIAL_SETTINGS, JENJANG_META } from '../data/initialData';
 import { PacketListSidebar } from './bank-soal/PacketListSidebar';
 import { QuestionCardItem } from './bank-soal/QuestionCardItem';
 import { QuestionEditorModal } from './bank-soal/QuestionEditorModal';
 import { BulkImportQuestionModal, NewPacketModal } from './bank-soal/BankSoalModals';
 import { CornerTableSticker } from './common/CornerStickerBadge';
+import { OfficialPdfModal } from './common/OfficialPdfModal';
 
 interface BankSoalViewProps {
   packets: ExamPacket[];
+  settings?: SchoolSettings;
   selectedJenjang: JenjangFilter;
   onSelectJenjang: (j: JenjangFilter) => void;
   onSavePacket: (packet: ExamPacket) => void;
@@ -32,6 +35,7 @@ interface BankSoalViewProps {
 
 export const BankSoalView: React.FC<BankSoalViewProps> = ({
   packets,
+  settings = INITIAL_SETTINGS,
   selectedJenjang,
   onSelectJenjang,
   onSavePacket,
@@ -44,6 +48,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   const [showNewPacketModal, setShowNewPacketModal] = useState(false);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [showPdfNaskahModal, setShowPdfNaskahModal] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [bulkText, setBulkText] = useState('');
 
@@ -213,12 +218,12 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                     <span className="hidden sm:inline">Duplikat</span>
                   </button>
                   <button
-                    onClick={() => window.print()}
-                    title="Cetak Naskah Soal & Kunci Jawaban (A4)"
+                    onClick={() => setShowPdfNaskahModal(true)}
+                    title="Output PDF Murni & Cetak Naskah Soal + Kunci Jawaban (A4)"
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-surface hover:bg-indigo-50 text-text-muted hover:text-text-main border border-border-subtle text-[11px] font-bold transition whitespace-nowrap"
                   >
                     <Printer className="w-3.5 h-3.5 shrink-0" />
-                    <span className="hidden sm:inline">Cetak A4</span>
+                    <span className="hidden sm:inline">PDF Naskah A4</span>
                   </button>
                   {packets.length > 1 && (
                     <button
@@ -360,6 +365,15 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
               setEditingQuestion(null);
             }}
             onSaveQuestion={handleSaveQuestion}
+          />
+
+          <OfficialPdfModal
+            isOpen={showPdfNaskahModal}
+            onClose={() => setShowPdfNaskahModal(false)}
+            docType="NASKAH_SOAL"
+            settings={settings}
+            selectedJenjang={selectedJenjang}
+            packet={activePacket}
           />
         </>
       )}

@@ -25,6 +25,7 @@ interface StudentExamPortalProps {
   schedules: ExamSchedule[];
   students: Student[];
   initialPacketId?: string;
+  initialStudentId?: string;
   onExitPortal: () => void;
   onSubmitExamResult: (submission: ExamSubmission) => void;
 }
@@ -34,6 +35,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   schedules,
   students,
   initialPacketId,
+  initialStudentId,
   onExitPortal,
   onSubmitExamResult,
 }) => {
@@ -49,7 +51,9 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   const matchingSchedule =
     schedules.find((s) => s.packetId === activePacket?.id) || schedules[0];
   const matchingStudent =
-    students.find((s) => s.jenjang === activePacket?.jenjang) || students[0];
+    (initialStudentId && students.find((s) => s.id === initialStudentId)) ||
+    students.find((s) => s.jenjang === activePacket?.jenjang) ||
+    students[0];
 
   const [tokenInput, setTokenInput] = useState<string>(
     matchingSchedule?.token || 'JN849K'

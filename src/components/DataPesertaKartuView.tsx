@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   CreditCard,
+  FileDown,
   FileText,
   FileUp,
   Plus,
@@ -28,6 +29,7 @@ import {
   StudentFormModal,
   TeacherFormModal,
 } from './peserta/PesertaModals';
+import { OfficialPdfModal } from './common/OfficialPdfModal';
 
 interface DataPesertaKartuViewProps {
   students: Student[];
@@ -61,6 +63,9 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   const [showBulkStudentModal, setShowBulkStudentModal] = useState(false);
   const [bulkStudentText, setBulkStudentText] = useState('');
   const [showAddTeacher, setShowAddTeacher] = useState(false);
+  const [pdfDocType, setPdfDocType] = useState<'KARTU_PESERTA' | 'PRESENSI_BERITA_ACARA' | null>(
+    null
+  );
 
   // Student form state
   const [nama, setNama] = useState('');
@@ -325,6 +330,14 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           {subTab === 'SANTRI' && (
             <>
+              <button
+                onClick={() => setPdfDocType('KARTU_PESERTA')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-[#211955] text-xs font-extrabold transition"
+                title="Output PDF Murni Kartu Peserta"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                <span>PDF Kartu ({filteredStudents.length})</span>
+              </button>
               {onRegenerateAllPins && (
                 <button
                   onClick={onRegenerateAllPins}
@@ -367,11 +380,13 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
           )}
           {(subTab === 'KARTU' || subTab === 'PRESENSI') && (
             <button
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] text-white text-xs font-extrabold shadow-sm"
+              onClick={() =>
+                setPdfDocType(subTab === 'KARTU' ? 'KARTU_PESERTA' : 'PRESENSI_BERITA_ACARA')
+              }
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold shadow-sm transition"
             >
               <Printer className="w-4 h-4" />
-              <span>Cetak Sekarang (A4 / PDF)</span>
+              <span>Output PDF Murni &amp; Cetak A4</span>
             </button>
           )}
         </div>
@@ -444,6 +459,17 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
           setTPeran={setTPeran}
           onSubmit={handleCreateTeacher}
           onClose={() => setShowAddTeacher(false)}
+        />
+      )}
+
+      {pdfDocType && (
+        <OfficialPdfModal
+          isOpen={Boolean(pdfDocType)}
+          onClose={() => setPdfDocType(null)}
+          docType={pdfDocType}
+          settings={settings}
+          selectedJenjang={selectedJenjang}
+          students={filteredStudents}
         />
       )}
     </div>

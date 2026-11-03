@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, ChevronDown, Film, Moon, Search, Sun } from 'lucide-react';
+import { Bell, ChevronDown, Film, LogOut, Moon, Search, Sun } from 'lucide-react';
 import {
   ExamPacket,
   JenjangFilter,
@@ -8,6 +8,7 @@ import {
   UserRole,
 } from '../../types/cbt';
 import { JENJANG_META } from '../../data/initialData';
+import { AuthenticatedSession } from '../auth/LoginPortalView';
 
 interface TopHeaderBarProps {
   packets: ExamPacket[];
@@ -20,6 +21,8 @@ interface TopHeaderBarProps {
   darkMode: boolean;
   onToggleDarkMode: () => void;
   onOpenShowcase?: () => void;
+  authSession?: AuthenticatedSession | null;
+  onLogout?: () => void;
 }
 
 export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
@@ -33,6 +36,8 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   darkMode,
   onToggleDarkMode,
   onOpenShowcase,
+  authSession,
+  onLogout,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -173,31 +178,33 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
             className="flex items-center gap-2.5 pl-1.5 pr-3 py-1.5 rounded-2xl bg-elevated border border-border-subtle/60 shadow-card hover:border-[var(--brand-text-accent)] transition"
           >
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#F0544F] to-[#F8B478] text-white font-extrabold text-xs flex items-center justify-center shadow-sm optical-circle-overshoot">
-              AF
+              {authSession?.avatarInitials || (userRole === 'admin' ? 'AF' : userRole === 'guru' ? 'KL' : 'SN')}
             </div>
             <div className="text-left">
               <div className="text-xs font-extrabold text-text-main leading-none whitespace-nowrap">
-                {userRole === 'admin'
-                  ? 'Ust. Ahmad Fauzi'
-                  : userRole === 'guru'
-                  ? 'KH. Dr. Lukman'
-                  : 'Mode Ujian Santri'}
+                {authSession?.name ||
+                  (userRole === 'admin'
+                    ? 'Ust. Ahmad Fauzi'
+                    : userRole === 'guru'
+                    ? 'KH. Dr. Lukman'
+                    : 'Mode Ujian Santri')}
               </div>
               <div className="text-[10px] font-semibold text-text-muted mt-0.5 whitespace-nowrap">
-                {userRole === 'admin'
-                  ? 'Operator Utama CBT'
-                  : userRole === 'guru'
-                  ? 'Pengawas & Guru'
-                  : 'Simulasi Peserta'}
+                {authSession?.badgeRole ||
+                  (userRole === 'admin'
+                    ? 'Operator Utama CBT'
+                    : userRole === 'guru'
+                    ? 'Pengawas & Guru'
+                    : 'Simulasi Peserta')}
               </div>
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
           </button>
 
           {showRoleMenu && (
-            <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-elevated shadow-floating border border-border-subtle p-2 z-50 text-xs space-y-1">
+            <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-elevated shadow-floating border border-border-subtle p-2 z-50 text-xs space-y-1">
               <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-text-muted">
-                Ganti Peran / Portal
+                Ganti Peran Cepat
               </div>
               <button
                 onClick={() => {
@@ -239,6 +246,22 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
               >
                 🎓 Layar Simulasi Ujian Siswa
               </button>
+
+              {onLogout && (
+                <>
+                  <div className="my-1 border-t border-border-subtle" />
+                  <button
+                    onClick={() => {
+                      setShowRoleMenu(false);
+                      onLogout();
+                    }}
+                    className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-xl font-extrabold text-[#D93834] hover:bg-red-50 transition"
+                  >
+                    <LogOut className="w-3.5 h-3.5 shrink-0" />
+                    <span>Keluar / Portal Login Resmi</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

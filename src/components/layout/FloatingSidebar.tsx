@@ -18,6 +18,7 @@ interface FloatingSidebarProps {
   onSetUserRole: (role: UserRole) => void;
   onOpenStudentSim: () => void;
   onOpenGuide: () => void;
+  onLogout?: () => void;
 }
 
 const NAV_ITEMS: { id: NavTab; label: string; icon: React.ReactNode }[] = [
@@ -36,6 +37,7 @@ export const FloatingSidebar: React.FC<FloatingSidebarProps> = ({
   onSetUserRole,
   onOpenStudentSim,
   onOpenGuide,
+  onLogout,
 }) => {
   return (
     <aside
@@ -119,16 +121,24 @@ export const FloatingSidebar: React.FC<FloatingSidebarProps> = ({
         <div className="hidden lg:block w-8 h-px bg-white/15 mb-2.5" />
         <button
           type="button"
-          onClick={() => (userRole === 'siswa' ? onSetUserRole('admin') : onOpenStudentSim())}
+          onClick={() => {
+            if (userRole === 'siswa') {
+              onSetUserRole('admin');
+            } else if (onLogout) {
+              onLogout();
+            } else {
+              onOpenStudentSim();
+            }
+          }}
           title={
             userRole === 'siswa'
               ? 'Kembali ke Mode Pengelola'
-              : 'Buka Portal Simulasi Ujian Siswa'
+              : 'Keluar Sesi / Buka Portal Login Resmi'
           }
           aria-label={
             userRole === 'siswa'
               ? 'Kembali ke Mode Pengelola'
-              : 'Buka Portal Simulasi Ujian Siswa'
+              : 'Keluar Sesi / Buka Portal Login Resmi'
           }
           className={`relative group w-10 h-10 lg:w-[50px] lg:h-11 rounded-2xl flex items-center justify-center transition-colors focus:outline-none ${
             userRole === 'siswa'
@@ -141,7 +151,7 @@ export const FloatingSidebar: React.FC<FloatingSidebarProps> = ({
             <span>
               {userRole === 'siswa'
                 ? 'Keluar Mode Siswa (Ke Admin)'
-                : 'Portal Simulasi Ujian Siswa'}
+                : 'Keluar Sesi / Portal Login'}
             </span>
           </span>
         </button>

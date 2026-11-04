@@ -282,7 +282,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     const scheduleId = matchingSchedule?.id || 'sch-sim';
 
     const submission: ExamSubmission = {
-      id: `sub-${Date.now()}`,
+      id: `sub-${activePacket.id}-${studentId}`,
       scheduleId,
       packetId: activePacket.id,
       studentId,
@@ -374,13 +374,17 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
         : `Menjawab ${answeredTotalCount}/${activePacket.questions.length} soal`,
     };
 
-    publishLiveSyncEvent({
-      type: 'STUDENT_PROGRESS',
-      scheduleId,
-      packetId: activePacket.id,
-      participant: liveParticipant,
-      timestamp: Date.now(),
-    });
+    const delayMs = answeredTotalCount === 0 || violationCount > 0 || isLockedByAntiCheat ? 50 : 1200;
+    const timer = setTimeout(() => {
+      publishLiveSyncEvent({
+        type: 'STUDENT_PROGRESS',
+        scheduleId,
+        packetId: activePacket.id,
+        participant: liveParticipant,
+        timestamp: Date.now(),
+      });
+    }, delayMs);
+    return () => clearTimeout(timer);
   }, [
     hasStarted,
     isSubmitted,

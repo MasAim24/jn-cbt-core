@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   CheckCircle2,
+  Cloud,
+  Copy,
   Database,
   Download,
   KeyRound,
@@ -16,6 +18,11 @@ import {
 import { NavTab, SchoolSettings, Student, Teacher } from '../types/cbt';
 import { CornerTableSticker } from './common/CornerStickerBadge';
 import { fetchSqliteStatus, SqliteServerStatus } from '../utils/sqliteApiClient';
+import {
+  checkSupabaseConnection,
+  SUPABASE_SQL_SCHEMA,
+  SupabaseCloudStatus,
+} from '../utils/supabaseCloudClient';
 
 interface PengaturanViewProps {
   settings: SchoolSettings;
@@ -26,7 +33,7 @@ interface PengaturanViewProps {
   onResetDemoData: () => void;
   onExportFullBackup: () => void;
   onImportFullBackup?: (jsonData: any) => void;
-  onForceSyncSqlite?: () => Promise<void>;
+  onForceSyncSqlite?: (overrideSettings?: SchoolSettings) => Promise<void>;
 }
 
 export const PengaturanView: React.FC<PengaturanViewProps> = ({
@@ -45,6 +52,9 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
   const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
   const [sqliteStatus, setSqliteStatus] = useState<SqliteServerStatus | null>(null);
   const [syncingSqlite, setSyncingSqlite] = useState(false);
+  const [supabaseStatus, setSupabaseStatus] = useState<SupabaseCloudStatus | null>(null);
+  const [syncingSupabase, setSyncingSupabase] = useState(false);
+  const [copiedSqlNotice, setCopiedSqlNotice] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -55,7 +65,12 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
     fetchSqliteStatus().then((st) => {
       if (st) setSqliteStatus(st);
     });
-  }, [students.length, teachers.length]);
+    if (settings.supabaseUrl && settings.supabaseAnonKey) {
+      checkSupabaseConnection(settings.supabaseUrl, settings.supabaseAnonKey).then((st) => {
+        setSupabaseStatus(st);
+      });
+    }
+  }, [students.length, teachers.length, settings.supabaseUrl, settings.supabaseAnonKey]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -434,6 +449,162 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
                   className="w-full px-3.5 py-2 rounded-xl bg-surface border border-border-subtle text-text-main"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Cloud Supabase Connector (100% Cloud Mode for github.io & jn.examcbtcore.online) */}
+          <div className="rounded-[26px] bg-elevated p-6 shadow-card border border-border-subtle/60 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-extrabold text-text-main flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-[#14B894]" />
+                <span>Database Cloud Supabase (Mode 100% Cloud)</span>
+              </h2>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  supabaseStatus?.connected
+                    ? 'bg-teal-50 text-[#087963]'
+                    : 'bg-indigo-50 text-[#211955]'
+                }`}
+              >
+                {supabaseStatus?.connected ? 'CLOUD SUPABASE AKTIF' : 'SIAP DIHUBUNGKAN'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-text-muted leading-relaxed">
+              Gunakan konektor ini agar aplikasi di{' '}
+              <strong className="text-text-main">github.io</strong> /{' '}
+              <strong className="text-text-main">jn.examcbtcore.online</strong> berjalan 100% di
+              Cloud dan sanggup menangani <strong className="text-text-main">600+ santri</strong>{' '}
+              secara serentak tanpa perlu menyalakan PC server lokal.
+            </p>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Supabase Project URL
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://xxxxxxxxxxxx.supabase.co"
+                  value={form.supabaseUrl || ''}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      supabaseUrl: e.target.value,
+                      syncMode: e.target.value ? 'SUPABASE_HYBRID' : 'LOCAL_STORAGE',
+                    })
+                  }
+                  className="w-full px-3.5 py-2 rounded-xl bg-surface border border-border-subtle text-text-main font-mono text-[11px]"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Supabase Anon Public Key
+                </label>
+                <input
+                  type="password"
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  value={form.supabaseAnonKey || ''}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      supabaseAnonKey: e.target.value,
+                      syncMode: e.target.value ? 'SUPABASE_HYBRID' : 'LOCAL_STORAGE',
+                    })
+                  }
+                  className="w-full px-3.5 py-2 rounded-xl bg-surface border border-border-subtle text-text-main font-mono text-[11px]"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+                    setCopiedSqlNotice(true);
+                    setTimeout(() => setCopiedSqlNotice(false), 3500);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-[#211955] text-[11px] font-extrabold transition cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>
+                    {copiedSqlNotice ? 'Skema SQL Tersalin!' : '1. Salin Skema SQL Supabase'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={syncingSupabase || !form.supabaseUrl || !form.supabaseAnonKey}
+                  onClick={async () => {
+                    setSyncingSupabase(true);
+                    const nextSettings: SchoolSettings = {
+                      ...form,
+                      syncMode: 'SUPABASE_HYBRID',
+                    };
+                    onSaveSettings(nextSettings);
+                    if (onForceSyncSqlite) {
+                      await onForceSyncSqlite(nextSettings);
+                    }
+                    const st = await checkSupabaseConnection(
+                      nextSettings.supabaseUrl,
+                      nextSettings.supabaseAnonKey
+                    );
+                    setSupabaseStatus(st);
+                    setSyncingSupabase(false);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 disabled:opacity-50 text-[#087963] text-[11px] font-extrabold transition cursor-pointer"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${syncingSupabase ? 'animate-spin' : ''}`} />
+                  <span>
+                    {syncingSupabase
+                      ? 'Menghubungkan & Upload...'
+                      : '2. Uji & Sinkronkan ke Supabase'}
+                  </span>
+                </button>
+              </div>
+
+              {copiedSqlNotice && (
+                <div className="p-2.5 rounded-xl bg-teal-50 text-[#087963] text-[11px] font-semibold">
+                  Skema SQL berhasil disalin! Buka dashboard Supabase &rarr; menu{' '}
+                  <strong>SQL Editor</strong> &rarr; Paste &rarr; klik <strong>Run</strong>.
+                </div>
+              )}
+
+              {supabaseStatus && !supabaseStatus.connected && supabaseStatus.error && (
+                <div className="p-2.5 rounded-xl bg-amber-50 text-[#B85D19] text-[11px] font-semibold">
+                  {supabaseStatus.error}
+                </div>
+              )}
+
+              {supabaseStatus?.connected && supabaseStatus.counts && (
+                <div className="p-3 rounded-2xl bg-surface border border-border-subtle space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-text-muted font-semibold">Status Cloud PostgreSQL:</span>
+                    <strong className="font-mono text-[#087963]">TERHUBUNG (READY 600+ USER)</strong>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
+                      <div className="text-sm font-extrabold text-text-main">
+                        {supabaseStatus.counts.packets} / {supabaseStatus.counts.schedules}
+                      </div>
+                      <div className="text-[10px] text-text-muted">Paket / Jadwal</div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
+                      <div className="text-sm font-extrabold text-[#087963]">
+                        {supabaseStatus.counts.students} / {supabaseStatus.counts.teachers}
+                      </div>
+                      <div className="text-[10px] text-text-muted">Santri / Guru</div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
+                      <div className="text-sm font-extrabold text-[#211955] dark:text-[#F8B478]">
+                        {supabaseStatus.counts.submissions}
+                      </div>
+                      <div className="text-[10px] text-text-muted">Nilai Masuk</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

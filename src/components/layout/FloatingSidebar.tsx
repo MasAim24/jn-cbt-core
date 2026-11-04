@@ -63,7 +63,7 @@ export const FloatingSidebar: React.FC<FloatingSidebarProps> = ({
       >
         <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-white text-[#211955] flex items-center justify-center font-black text-xs shadow-sm optical-circle-overshoot transition-transform group-hover:scale-105 overflow-hidden p-0.5">
           <img
-            src="/logo-jabalnur.png"
+            src={`${(import.meta as any).env?.BASE_URL || '/'}logo-jabalnur.png`}
             alt="Logo Pondok Pesantren Jabal Nur"
             className="w-full h-full object-contain rounded-full"
           />

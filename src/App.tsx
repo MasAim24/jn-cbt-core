@@ -37,6 +37,11 @@ import {
   loadStateFromSqlite,
   saveStateToSqlite,
 } from './utils/sqliteApiClient';
+import {
+  getSupabaseConfig,
+  loadStateFromSupabase,
+  saveMasterStateToSupabase,
+} from './utils/supabaseCloudClient';
 
 const STORAGE_KEYS = {
   PACKETS: 'jn_cbt_packets_v3',
@@ -163,26 +168,66 @@ export function App() {
     );
   }, []);
 
-  // Hydrate or Seed Central School SQLite Server Database on mount
+  // Hydrate or Seed Central Database (Supabase Cloud Primary -> Local SQLite Fallback) on mount
   useEffect(() => {
     let mounted = true;
-    loadStateFromSqlite().then((loaded) => {
+
+    const initDatabases = async () => {
+      const supaCfg = getSupabaseConfig(currentSettings);
+      if (supaCfg) {
+        const cloudLoaded = await loadStateFromSupabase(supaCfg);
+        if (mounted && cloudLoaded) {
+          if (cloudLoaded.empty) {
+            await saveMasterStateToSupabase(
+              {
+                settings: currentSettings,
+                packets,
+                schedules,
+                students,
+                teachers,
+                submissions,
+              },
+              supaCfg
+            );
+          } else {
+            if (cloudLoaded.settings) setSettings([cloudLoaded.settings]);
+            if (Array.isArray(cloudLoaded.packets) && cloudLoaded.packets.length > 0) {
+              setPackets(cloudLoaded.packets);
+            }
+            if (Array.isArray(cloudLoaded.schedules) && cloudLoaded.schedules.length > 0) {
+              setSchedules(cloudLoaded.schedules);
+            }
+            if (Array.isArray(cloudLoaded.students)) setStudents(cloudLoaded.students);
+            if (Array.isArray(cloudLoaded.teachers)) setTeachers(cloudLoaded.teachers);
+            if (Array.isArray(cloudLoaded.submissions)) setSubmissions(cloudLoaded.submissions);
+          }
+          setTimeout(() => {
+            sqliteReadyRef.current = true;
+          }, 120);
+          return;
+        }
+      }
+
+      if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+        sqliteReadyRef.current = true;
+        return;
+      }
+
+      const loaded = await loadStateFromSqlite();
       if (!mounted || !loaded) {
         sqliteReadyRef.current = true;
         return;
       }
       if (loaded.empty) {
-        // First run: seed initial state into SQLite WAL database
-        saveStateToSqlite({
+        await saveStateToSqlite({
           settings: currentSettings,
           packets,
           schedules,
           students,
           teachers,
           submissions,
-        }).finally(() => {
-          sqliteReadyRef.current = true;
         });
+        sqliteReadyRef.current = true;
       } else {
         if (loaded.settings) setSettings([loaded.settings]);
         if (Array.isArray(loaded.packets) && loaded.packets.length > 0) {
@@ -198,26 +243,82 @@ export function App() {
           sqliteReadyRef.current = true;
         }, 120);
       }
-    });
+    };
+
+    initDatabases();
     return () => {
       mounted = false;
     };
   }, []);
 
-  // Auto-sync state changes to Local SQLite Server Database (debounced 350ms, Admin & Guru only;
-  // Student devices push atomic STUDENT_PROGRESS and STUDENT_SUBMITTED events via /api/cbt/events)
+  // Periodic background cloud refresh for Login Portal & Proctor/Rekap views
+  useEffect(() => {
+    const supaCfg = getSupabaseConfig(currentSettings);
+    if (!supaCfg || authSession?.role === 'siswa') return;
+
+    const interval = setInterval(async () => {
+      const cloudLoaded = await loadStateFromSupabase(supaCfg);
+      if (!cloudLoaded || cloudLoaded.empty) return;
+      if (!authSession) {
+        // On Login screen, keep student/teacher roster & schedules fresh
+        if (Array.isArray(cloudLoaded.students)) setStudents(cloudLoaded.students);
+        if (Array.isArray(cloudLoaded.teachers)) setTeachers(cloudLoaded.teachers);
+        if (Array.isArray(cloudLoaded.schedules) && cloudLoaded.schedules.length > 0) {
+          setSchedules(cloudLoaded.schedules);
+        }
+        if (Array.isArray(cloudLoaded.packets) && cloudLoaded.packets.length > 0) {
+          setPackets(cloudLoaded.packets);
+        }
+      } else {
+        // For logged-in Admin/Guru, merge incoming student submissions & live participant status
+        if (Array.isArray(cloudLoaded.submissions)) {
+          setSubmissions((prev) => {
+            const byId = new Map(prev.map((s) => [s.id, s]));
+            cloudLoaded.submissions.forEach((s) => byId.set(s.id, s));
+            return Array.from(byId.values());
+          });
+        }
+        if (Array.isArray(cloudLoaded.schedules) && cloudLoaded.schedules.length > 0) {
+          setSchedules((prev) =>
+            prev.map((sch) => {
+              const match = cloudLoaded.schedules.find((cs) => cs.id === sch.id);
+              return match
+                ? {
+                    ...sch,
+                    liveParticipants: match.liveParticipants,
+                    hadirCount: match.hadirCount,
+                    selesaiCount: match.selesaiCount,
+                  }
+                : sch;
+            })
+          );
+        }
+      }
+    }, 12000);
+
+    return () => clearInterval(interval);
+  }, [currentSettings, authSession]);
+
+  // Auto-sync state changes to Cloud Supabase & Local SQLite Server Database (debounced 400ms, Admin & Guru only;
+  // Student devices push atomic STUDENT_PROGRESS and STUDENT_SUBMITTED events)
   useEffect(() => {
     if (!sqliteReadyRef.current || authSession?.role === 'siswa') return;
     const timer = setTimeout(() => {
-      saveStateToSqlite({
+      const payload = {
         settings: currentSettings,
         packets,
         schedules,
         students,
         teachers,
         submissions,
-      });
-    }, 350);
+      };
+      if (getSupabaseConfig(currentSettings)) {
+        saveMasterStateToSupabase(payload);
+      }
+      if (typeof window !== 'undefined' && !window.location.hostname.endsWith('github.io')) {
+        saveStateToSqlite(payload);
+      }
+    }, 400);
     return () => clearTimeout(timer);
   }, [packets, schedules, students, teachers, submissions, currentSettings, authSession?.role]);
 
@@ -465,15 +566,23 @@ export function App() {
     }
   };
 
-  const handleForceSyncSqlite = async () => {
-    await saveStateToSqlite({
-      settings: currentSettings,
+  const handleForceSyncSqlite = async (overrideSettings?: SchoolSettings) => {
+    const activeSettings = overrideSettings || currentSettings;
+    const payload = {
+      settings: activeSettings,
       packets,
       schedules,
       students,
       teachers,
       submissions,
-    });
+    };
+    const supaCfg = getSupabaseConfig(activeSettings);
+    if (supaCfg) {
+      await saveMasterStateToSupabase(payload, supaCfg);
+    }
+    if (typeof window !== 'undefined' && !window.location.hostname.endsWith('github.io')) {
+      await saveStateToSqlite(payload);
+    }
   };
 
   const handleOpenStudentSim = (packetId?: string) => {

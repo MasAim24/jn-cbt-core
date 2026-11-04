@@ -1,4 +1,9 @@
 import { ExamSubmission, LiveParticipant } from '../types/cbt';
+import {
+  getSupabaseConfig,
+  pollEventsFromSupabase,
+  pushAtomicEventToSupabase,
+} from './supabaseCloudClient';
 
 export type LiveSyncMessage =
   | {
@@ -86,14 +91,20 @@ export function publishLiveSyncEvent(message: LiveSyncMessage): void {
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent<LiveSyncMessage>(DOM_EVENT_NAME, { detail: message }));
-    // Push to LAN SQLite Server Event Bus
-    fetch('/api/cbt/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(message),
-    }).catch(() => {
-      // Offline / static fallback
-    });
+    // Push to Cloud Supabase (atomic per-student row upsert for 600+ scale)
+    if (getSupabaseConfig()) {
+      pushAtomicEventToSupabase(message);
+    }
+    // Push to LAN SQLite Server Event Bus (when running on local school server)
+    if (!window.location.hostname.endsWith('github.io')) {
+      fetch('/api/cbt/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message),
+      }).catch(() => {
+        // Offline / static fallback
+      });
+    }
   }
 }
 
@@ -158,16 +169,21 @@ export function subscribeLiveSyncEvents(
 
     pollTimer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/cbt/events?since=${latestServerTs}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data?.ok && Array.isArray(data.events)) {
-          data.events.forEach((ev: LiveSyncMessage) => processMessage(ev));
+        if (getSupabaseConfig()) {
+          const cloudEvents = await pollEventsFromSupabase(latestServerTs);
+          cloudEvents.forEach((ev) => processMessage(ev));
+        } else if (!window.location.hostname.endsWith('github.io')) {
+          const res = await fetch(`/api/cbt/events?since=${latestServerTs}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data?.ok && Array.isArray(data.events)) {
+            data.events.forEach((ev: LiveSyncMessage) => processMessage(ev));
+          }
         }
       } catch {
         // Ignore polling errors
       }
-    }, 3000);
+    }, 4000);
   }
 
   return () => {

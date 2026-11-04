@@ -103,6 +103,7 @@ function createSqliteApiMiddleware() {
 }
 
 export default defineConfig({
+  base: "./",
   plugins: [
     react(),
     {

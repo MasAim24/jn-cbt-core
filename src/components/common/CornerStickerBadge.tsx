@@ -20,22 +20,44 @@ const STICKER_PATHS: Record<StickerType, string> = {
 };
 
 const processedStickerCache: Partial<Record<StickerType, string>> = {};
+const inFlightStickerPromises: Partial<Record<StickerType, Promise<string>>> = {};
+const STORAGE_CACHE_PREFIX = 'jn_cbt_sticker_cutout_v2_';
+
+function getCachedSticker(key: StickerType): string | null {
+  if (processedStickerCache[key]) {
+    return processedStickerCache[key]!;
+  }
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_CACHE_PREFIX + key) : null;
+    if (saved && saved.startsWith('data:image/')) {
+      processedStickerCache[key] = saved;
+      return saved;
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+  return null;
+}
 
 /**
  * Removes the outer pure-white square canvas around the die-cut sticker's drop shadow
  * while preserving the crisp white die-cut sticker contour around the 3D illustration.
  */
 function processDieCutSticker(src: string, key: StickerType): Promise<string> {
-  if (processedStickerCache[key]) {
-    return Promise.resolve(processedStickerCache[key]!);
+  const existing = getCachedSticker(key);
+  if (existing) {
+    return Promise.resolve(existing);
+  }
+  if (inFlightStickerPromises[key]) {
+    return inFlightStickerPromises[key]!;
   }
 
-  return new Promise((resolve) => {
+  const promise = new Promise<string>((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
-        const size = 360;
+        const size = 240;
         const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
@@ -95,14 +117,27 @@ function processDieCutSticker(src: string, key: StickerType): Promise<string> {
         ctx.putImageData(imgData, 0, 0);
         const dataUrl = canvas.toDataURL('image/png');
         processedStickerCache[key] = dataUrl;
+        try {
+          localStorage.setItem(STORAGE_CACHE_PREFIX + key, dataUrl);
+        } catch {
+          // Ignore quota exceeded
+        }
         resolve(dataUrl);
       } catch {
         resolve(src);
+      } finally {
+        delete inFlightStickerPromises[key];
       }
     };
-    img.onerror = () => resolve(src);
+    img.onerror = () => {
+      delete inFlightStickerPromises[key];
+      resolve(src);
+    };
     img.src = src;
   });
+
+  inFlightStickerPromises[key] = promise;
+  return promise;
 }
 
 interface DieCutStickerImageProps {
@@ -117,10 +152,15 @@ export const DieCutStickerImage: React.FC<DieCutStickerImageProps> = ({
   className = 'w-28 h-28',
 }) => {
   const rawSrc = STICKER_PATHS[type];
-  const [src, setSrc] = useState<string>(processedStickerCache[type] || rawSrc);
+  const [src, setSrc] = useState<string | null>(() => getCachedSticker(type));
 
   useEffect(() => {
     let mounted = true;
+    const cached = getCachedSticker(type);
+    if (cached) {
+      setSrc(cached);
+      return;
+    }
     processDieCutSticker(rawSrc, type).then((res) => {
       if (mounted) setSrc(res);
     });
@@ -129,12 +169,18 @@ export const DieCutStickerImage: React.FC<DieCutStickerImageProps> = ({
     };
   }, [rawSrc, type]);
 
+  if (!src) {
+    return <div className={className} aria-hidden="true" />;
+  }
+
   return (
     <img
       src={src}
       alt={alt}
+      loading="lazy"
+      decoding="async"
       draggable={false}
-      className={`select-none object-contain drop-shadow-[0_10px_20px_rgba(33,25,85,0.22)] transition-transform duration-300 ${className}`}
+      className={`select-none object-contain drop-shadow-[0_10px_20px_rgba(33,25,85,0.22)] transition-all duration-300 ${className}`}
     />
   );
 };

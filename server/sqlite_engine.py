@@ -26,6 +26,9 @@ LEGACY_DUMMY_STUDENT_IDS = {
     "std-wst-2",
     "std-uly-1",
     "std-uly-2",
+    "std-imp-1793664205470-0",
+    "std-imp-1793664205470-1",
+    "std-imp-1793664205470-2",
 }
 LEGACY_DUMMY_TEACHER_IDS = {"tch-1", "tch-2", "tch-3", "tch-4"}
 LEGACY_DUMMY_SUBMISSION_IDS = {"sub-01", "sub-02", "sub-03", "sub-04"}

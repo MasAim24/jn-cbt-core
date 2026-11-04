@@ -341,13 +341,31 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
       loadedSettings.syncMode = 'SUPABASE_HYBRID';
     }
 
+    const legacyDummyStudents = new Set([
+      'std-mts-1',
+      'std-mts-2',
+      'std-mts-3',
+      'std-ma-1',
+      'std-ma-2',
+      'std-wst-1',
+      'std-wst-2',
+      'std-uly-1',
+      'std-uly-2',
+      'std-imp-1793664205470-0',
+      'std-imp-1793664205470-1',
+      'std-imp-1793664205470-2',
+    ]);
+    const cleanStudents = Array.isArray(master.students_json)
+      ? (master.students_json as Student[]).filter((s) => !legacyDummyStudents.has(s.id))
+      : [];
+
     return {
       ok: true,
       empty: false,
       settings: loadedSettings,
       packets: Array.isArray(master.packets_json) ? master.packets_json : [],
       schedules: mergedSchedules,
-      students: Array.isArray(master.students_json) ? master.students_json : [],
+      students: cleanStudents,
       teachers: Array.isArray(master.teachers_json) ? master.teachers_json : [],
       submissions,
     };

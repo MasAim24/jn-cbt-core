@@ -1,4 +1,5 @@
 import { ExamSubmission, LiveParticipant } from '../types/cbt';
+import { isLocalSqliteHost } from './sqliteApiClient';
 import {
   getSupabaseConfig,
   pollEventsFromSupabase,
@@ -96,7 +97,7 @@ export function publishLiveSyncEvent(message: LiveSyncMessage): void {
       pushAtomicEventToSupabase(message);
     }
     // Push to LAN SQLite Server Event Bus (when running on local school server)
-    if (!window.location.hostname.endsWith('github.io')) {
+    if (isLocalSqliteHost()) {
       fetch('/api/cbt/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -172,7 +173,7 @@ export function subscribeLiveSyncEvents(
         if (getSupabaseConfig()) {
           const cloudEvents = await pollEventsFromSupabase(latestServerTs);
           cloudEvents.forEach((ev) => processMessage(ev));
-        } else if (!window.location.hostname.endsWith('github.io')) {
+        } else if (isLocalSqliteHost()) {
           const res = await fetch(`/api/cbt/events?since=${latestServerTs}`);
           if (!res.ok) return;
           const data = await res.json();

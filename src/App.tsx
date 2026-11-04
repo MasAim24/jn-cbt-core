@@ -34,6 +34,7 @@ import {
 } from './components/auth/LoginPortalView';
 import { subscribeLiveSyncEvents } from './utils/liveProctorSync';
 import {
+  isLocalSqliteHost,
   loadStateFromSqlite,
   saveStateToSqlite,
 } from './utils/sqliteApiClient';
@@ -141,6 +142,9 @@ export function App() {
       'std-wst-2',
       'std-uly-1',
       'std-uly-2',
+      'std-imp-1793664205470-0',
+      'std-imp-1793664205470-1',
+      'std-imp-1793664205470-2',
     ]);
     const legacyDummyTeachers = new Set(['tch-1', 'tch-2', 'tch-3', 'tch-4']);
     const legacyDummySubs = new Set(['sub-01', 'sub-02', 'sub-03', 'sub-04']);
@@ -208,7 +212,7 @@ export function App() {
         }
       }
 
-      if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+      if (!isLocalSqliteHost()) {
         sqliteReadyRef.current = true;
         return;
       }
@@ -315,7 +319,7 @@ export function App() {
       if (getSupabaseConfig(currentSettings)) {
         saveMasterStateToSupabase(payload);
       }
-      if (typeof window !== 'undefined' && !window.location.hostname.endsWith('github.io')) {
+      if (isLocalSqliteHost()) {
         saveStateToSqlite(payload);
       }
     }, 400);
@@ -580,7 +584,7 @@ export function App() {
     if (supaCfg) {
       await saveMasterStateToSupabase(payload, supaCfg);
     }
-    if (typeof window !== 'undefined' && !window.location.hostname.endsWith('github.io')) {
+    if (isLocalSqliteHost()) {
       await saveStateToSqlite(payload);
     }
   };

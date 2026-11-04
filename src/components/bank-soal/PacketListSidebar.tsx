@@ -16,6 +16,11 @@ export const PacketListSidebar: React.FC<PacketListSidebarProps> = ({
 }) => {
   return (
     <div className="no-print lg:col-span-4 space-y-3.5">
+      {packets.length === 0 && (
+        <div className="rounded-[22px] bg-elevated p-6 text-center border border-dashed border-border-subtle text-xs text-text-muted">
+          Daftar paket soal kosong. Klik <strong className="text-text-main">+ Paket Soal Baru</strong> di kanan atas untuk menambahkan mata pelajaran.
+        </div>
+      )}
       {packets.map((pkt) => {
         const isSelected = activePacketId === pkt.id;
         const meta = JENJANG_META[pkt.jenjang];

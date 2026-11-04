@@ -30,6 +30,19 @@ export const ScheduleCardGrid: React.FC<ScheduleCardGridProps> = ({
 }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      {schedules.length === 0 && (
+        <div className="col-span-full rounded-[24px] bg-elevated p-10 text-center shadow-card border border-dashed border-border-subtle space-y-2">
+          <div className="text-sm font-extrabold text-text-main">
+            Belum Ada Jadwal Sesi Ujian CBT Aktif
+          </div>
+          <p className="text-xs text-text-muted max-w-md mx-auto leading-relaxed">
+            Seluruh jadwal dummy telah dibersihkan. Buat paket soal terlebih dahulu di menu{' '}
+            <strong className="text-text-main">Bank Soal &amp; Kitab</strong>, lalu klik tombol{' '}
+            <strong className="text-text-main">+ Buat Jadwal Sesi Baru</strong> di kanan atas untuk
+            membuka sesi ujian dan menghasilkan Token Ruang.
+          </p>
+        </div>
+      )}
       {schedules.map((sch) => {
         const meta = JENJANG_META[sch.jenjang];
         const isSelected = activeScheduleId === sch.id;
@@ -130,7 +143,7 @@ export const ScheduleCardGrid: React.FC<ScheduleCardGridProps> = ({
                   : `Kelas: ${sch.kelasTarget}`}
               </span>
               <div className="flex items-center gap-1.5 shrink-0">
-                {onDeleteSchedule && totalSchedulesCount > 1 && (
+                {onDeleteSchedule && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

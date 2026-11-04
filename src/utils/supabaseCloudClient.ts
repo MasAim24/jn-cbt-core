@@ -233,14 +233,28 @@ export async function checkSupabaseConnection(
     });
     const subRows = subRes.ok ? await subRes.json() : [];
 
+    const legacyDummyPackets = new Set([
+      'pkt-mts-01',
+      'pkt-ma-01',
+      'pkt-wustho-01',
+      'pkt-ulya-01',
+    ]);
+    const legacyDummySchedules = new Set(['sch-01', 'sch-02', 'sch-03', 'sch-04']);
+    const cleanPacketsCount = Array.isArray(row?.packets_json)
+      ? row.packets_json.filter((p: any) => !legacyDummyPackets.has(p?.id)).length
+      : 0;
+    const cleanSchedulesCount = Array.isArray(row?.schedules_json)
+      ? row.schedules_json.filter((s: any) => !legacyDummySchedules.has(s?.id)).length
+      : 0;
+
     return {
       ok: true,
       connected: true,
       projectUrl: cfg.url,
       updatedAt: row?.updated_at,
       counts: {
-        packets: Array.isArray(row?.packets_json) ? row.packets_json.length : 0,
-        schedules: Array.isArray(row?.schedules_json) ? row.schedules_json.length : 0,
+        packets: cleanPacketsCount,
+        schedules: cleanSchedulesCount,
         students: Array.isArray(row?.students_json) ? row.students_json.length : 0,
         teachers: Array.isArray(row?.teachers_json) ? row.teachers_json.length : 0,
         submissions: Array.isArray(subRows) ? subRows.length : 0,
@@ -349,6 +363,13 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
       loadedSettings.syncMode = 'SUPABASE_HYBRID';
     }
 
+    const legacyDummyPackets = new Set([
+      'pkt-mts-01',
+      'pkt-ma-01',
+      'pkt-wustho-01',
+      'pkt-ulya-01',
+    ]);
+    const legacyDummySchedules = new Set(['sch-01', 'sch-02', 'sch-03', 'sch-04']);
     const legacyDummyStudents = new Set([
       'std-mts-1',
       'std-mts-2',
@@ -363,6 +384,10 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
       'std-imp-1793664205470-1',
       'std-imp-1793664205470-2',
     ]);
+    const cleanPackets = Array.isArray(master.packets_json)
+      ? (master.packets_json as ExamPacket[]).filter((p) => !legacyDummyPackets.has(p.id))
+      : [];
+    const cleanSchedules = mergedSchedules.filter((s) => !legacyDummySchedules.has(s.id));
     const cleanStudents = Array.isArray(master.students_json)
       ? (master.students_json as Student[]).filter((s) => !legacyDummyStudents.has(s.id))
       : [];
@@ -371,8 +396,8 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
       ok: true,
       empty: false,
       settings: loadedSettings,
-      packets: Array.isArray(master.packets_json) ? master.packets_json : [],
-      schedules: mergedSchedules,
+      packets: cleanPackets,
+      schedules: cleanSchedules,
       students: cleanStudents,
       teachers: Array.isArray(master.teachers_json) ? master.teachers_json : [],
       submissions,

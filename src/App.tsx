@@ -142,8 +142,15 @@ export function App() {
 
   const currentSettings = settings[0] || INITIAL_SETTINGS;
 
-  // Purge any legacy dummy records if kept alive in HMR memory
+  // Purge any legacy dummy records if kept alive in HMR memory or localStorage
   useEffect(() => {
+    const legacyDummyPackets = new Set([
+      'pkt-mts-01',
+      'pkt-ma-01',
+      'pkt-wustho-01',
+      'pkt-ulya-01',
+    ]);
+    const legacyDummySchedules = new Set(['sch-01', 'sch-02', 'sch-03', 'sch-04']);
     const legacyDummyStudents = new Set([
       'std-mts-1',
       'std-mts-2',
@@ -161,6 +168,11 @@ export function App() {
     const legacyDummyTeachers = new Set(['tch-1', 'tch-2', 'tch-3', 'tch-4']);
     const legacyDummySubs = new Set(['sub-01', 'sub-02', 'sub-03', 'sub-04']);
 
+    setPackets((prev) =>
+      prev.some((p) => legacyDummyPackets.has(p.id))
+        ? prev.filter((p) => !legacyDummyPackets.has(p.id))
+        : prev
+    );
     setStudents((prev) =>
       prev.some((s) => legacyDummyStudents.has(s.id))
         ? prev.filter((s) => !legacyDummyStudents.has(s.id))
@@ -177,10 +189,14 @@ export function App() {
         : prev
     );
     setSchedules((prev) =>
-      prev.map((sch) => ({
-        ...sch,
-        liveParticipants: sch.liveParticipants.filter((lp) => !legacyDummyStudents.has(lp.studentId)),
-      }))
+      prev
+        .filter((sch) => !legacyDummySchedules.has(sch.id))
+        .map((sch) => ({
+          ...sch,
+          liveParticipants: sch.liveParticipants.filter(
+            (lp) => !legacyDummyStudents.has(lp.studentId)
+          ),
+        }))
     );
   }, []);
 
@@ -210,10 +226,10 @@ export function App() {
               const normalizedCloudSettings = normalizeSchoolSettings(cloudLoaded.settings);
               setSettings([normalizedCloudSettings]);
             }
-            if (Array.isArray(cloudLoaded.packets) && cloudLoaded.packets.length > 0) {
+            if (Array.isArray(cloudLoaded.packets)) {
               setPackets(cloudLoaded.packets);
             }
-            if (Array.isArray(cloudLoaded.schedules) && cloudLoaded.schedules.length > 0) {
+            if (Array.isArray(cloudLoaded.schedules)) {
               setSchedules(cloudLoaded.schedules);
             }
             if (Array.isArray(cloudLoaded.students)) setStudents(cloudLoaded.students);
@@ -251,10 +267,10 @@ export function App() {
         if (loaded.settings) {
           setSettings([normalizeSchoolSettings(loaded.settings)]);
         }
-        if (Array.isArray(loaded.packets) && loaded.packets.length > 0) {
+        if (Array.isArray(loaded.packets)) {
           setPackets(loaded.packets);
         }
-        if (Array.isArray(loaded.schedules) && loaded.schedules.length > 0) {
+        if (Array.isArray(loaded.schedules)) {
           setSchedules(loaded.schedules);
         }
         if (Array.isArray(loaded.students)) setStudents(loaded.students);
@@ -284,10 +300,10 @@ export function App() {
         // On Login screen, keep student/teacher roster & schedules fresh
         if (Array.isArray(cloudLoaded.students)) setStudents(cloudLoaded.students);
         if (Array.isArray(cloudLoaded.teachers)) setTeachers(cloudLoaded.teachers);
-        if (Array.isArray(cloudLoaded.schedules) && cloudLoaded.schedules.length > 0) {
+        if (Array.isArray(cloudLoaded.schedules)) {
           setSchedules(cloudLoaded.schedules);
         }
-        if (Array.isArray(cloudLoaded.packets) && cloudLoaded.packets.length > 0) {
+        if (Array.isArray(cloudLoaded.packets)) {
           setPackets(cloudLoaded.packets);
         }
       } else {
@@ -471,6 +487,7 @@ export function App() {
 
   // Handlers
   const handleSavePacket = (pkt: ExamPacket) => {
+    sqliteReadyRef.current = true;
     setPackets((prev) => {
       const exists = prev.some((item) => item.id === pkt.id);
       return exists ? prev.map((item) => (item.id === pkt.id ? pkt : item)) : [pkt, ...prev];
@@ -478,10 +495,12 @@ export function App() {
   };
 
   const handleDeletePacket = (packetId: string) => {
+    sqliteReadyRef.current = true;
     setPackets((prev) => prev.filter((item) => item.id !== packetId));
   };
 
   const handleSaveSchedule = (sch: ExamSchedule) => {
+    sqliteReadyRef.current = true;
     setSchedules((prev) => {
       const exists = prev.some((item) => item.id === sch.id);
       return exists ? prev.map((item) => (item.id === sch.id ? sch : item)) : [sch, ...prev];
@@ -489,6 +508,7 @@ export function App() {
   };
 
   const handleDeleteSchedule = (scheduleId: string) => {
+    sqliteReadyRef.current = true;
     setSchedules((prev) => prev.filter((item) => item.id !== scheduleId));
   };
 

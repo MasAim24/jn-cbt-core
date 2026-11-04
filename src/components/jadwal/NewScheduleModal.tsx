@@ -78,6 +78,11 @@ export const NewScheduleModal: React.FC<NewScheduleModalProps> = ({
               onChange={(e) => setPacketId(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main font-bold"
             >
+              {packets.length === 0 && (
+                <option value="">
+                  -- Belum ada Paket Soal (Buat di menu Bank Soal terlebih dahulu) --
+                </option>
+              )}
               {packets.map((pkt) => (
                 <option key={pkt.id} value={pkt.id}>
                   [{pkt.jenjang}] {pkt.title} ({pkt.mapel})

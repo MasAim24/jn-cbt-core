@@ -228,15 +228,13 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                     <Printer className="w-3.5 h-3.5 shrink-0" />
                     <span className="hidden sm:inline">PDF Naskah A4</span>
                   </button>
-                  {packets.length > 1 && (
-                    <button
-                      onClick={() => onDeletePacket(activePacket.id)}
-                      title="Hapus Paket Soal"
-                      className="p-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-[#D93834] transition"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => onDeletePacket(activePacket.id)}
+                    title="Hapus Paket Soal"
+                    className="p-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-[#D93834] transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 
@@ -332,6 +330,14 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
 
             {/* Questions List */}
             <div className="space-y-4">
+              {displayedQuestions.length === 0 && (
+                <div className="rounded-[24px] bg-elevated p-8 text-center border border-dashed border-border-subtle text-xs text-text-muted">
+                  Belum ada butir soal pada paket ini. Klik tombol{' '}
+                  <strong className="text-text-main">+ Tambah Butir Soal</strong> atau{' '}
+                  <strong className="text-text-main">Import / Export (CSV/JSON)</strong> di atas
+                  untuk mulai memasukkan soal.
+                </div>
+              )}
               {displayedQuestions.map((q) => (
                 <QuestionCardItem
                   key={q.id}
@@ -345,7 +351,26 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
               ))}
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="lg:col-span-8 rounded-[24px] bg-elevated p-10 text-center shadow-card border border-dashed border-border-subtle space-y-3">
+            <div className="text-sm font-extrabold text-text-main">
+              Belum Ada Paket Soal / Mata Pelajaran Ujian
+            </div>
+            <p className="text-xs text-text-muted max-w-md mx-auto leading-relaxed">
+              Seluruh paket soal dummy telah dibersihkan. Silakan buat paket soal ujian baru untuk
+              tingkat MTs, Madrasah Aliyah (MA), PDF Diniyah Wustho, atau Ma&apos;had &apos;Ulya.
+            </p>
+            <div className="pt-2">
+              <button
+                onClick={() => setShowNewPacketModal(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold transition shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Buat Paket Soal Baru</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {activePacket && (

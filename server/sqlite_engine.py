@@ -429,12 +429,24 @@ def cmd_save(payload: dict) -> dict:
                     )
 
         if "schedules" in payload and isinstance(payload["schedules"], list):
-            cur.execute("DELETE FROM cbt_live_participants;")
-            cur.execute("DELETE FROM cbt_schedules;")
+            keep_sch_ids = [sch["id"] for sch in payload["schedules"] if "id" in sch]
+            if keep_sch_ids:
+                placeholders = ",".join("?" for _ in keep_sch_ids)
+                cur.execute(
+                    f"DELETE FROM cbt_live_participants WHERE schedule_id NOT IN ({placeholders});",
+                    tuple(keep_sch_ids),
+                )
+                cur.execute(
+                    f"DELETE FROM cbt_schedules WHERE id NOT IN ({placeholders});",
+                    tuple(keep_sch_ids),
+                )
+            else:
+                cur.execute("DELETE FROM cbt_live_participants;")
+                cur.execute("DELETE FROM cbt_schedules;")
             for sch in payload["schedules"]:
                 cur.execute(
                     """
-                    INSERT INTO cbt_schedules (
+                    INSERT OR REPLACE INTO cbt_schedules (
                       id, packet_id, packet_title, mapel, jenjang, kelas_target,
                       tanggal, waktu_mulai, waktu_selesai, durasi_menit, token,
                       ruang, pengawas, status, announcement, acak_soal, acak_opsi,
@@ -549,7 +561,8 @@ def cmd_save(payload: dict) -> dict:
                 )
 
         if "submissions" in payload and isinstance(payload["submissions"], list):
-            cur.execute("DELETE FROM cbt_submissions;")
+            if len(payload["submissions"]) == 0 and payload.get("forceClearSubmissions"):
+                cur.execute("DELETE FROM cbt_submissions;")
             for sub in payload["submissions"]:
                 if sub.get("id") in LEGACY_DUMMY_SUBMISSION_IDS:
                     continue
@@ -606,20 +619,139 @@ def cmd_event_push(event_obj: dict) -> dict:
     conn = get_connection()
     cur = conn.cursor()
     ts = int(event_obj.get("timestamp") or int(time.time() * 1000))
-    cur.execute(
-        "INSERT INTO cbt_live_events (timestamp, payload_json) VALUES (?, ?)",
-        (ts, json.dumps(event_obj)),
-    )
-    # Keep only last 250 events so table stays compact
-    cur.execute(
-        """
-        DELETE FROM cbt_live_events
-        WHERE id NOT IN (
-          SELECT id FROM cbt_live_events ORDER BY id DESC LIMIT 250
+    ev_type = event_obj.get("type")
+
+    try:
+        cur.execute("BEGIN IMMEDIATE;")
+        cur.execute(
+            "INSERT INTO cbt_live_events (timestamp, payload_json) VALUES (?, ?)",
+            (ts, json.dumps(event_obj)),
         )
-        """
-    )
-    conn.commit()
+        # Keep only last 250 events so table stays compact
+        cur.execute(
+            """
+            DELETE FROM cbt_live_events
+            WHERE id NOT IN (
+              SELECT id FROM cbt_live_events ORDER BY id DESC LIMIT 250
+            )
+            """
+        )
+
+        # Atomic LAN persistence for student progress, exam submissions, and proctor resets
+        if ev_type in ("STUDENT_PROGRESS", "STUDENT_SUBMITTED"):
+            sch_id = event_obj.get("scheduleId") or ""
+            pkt_id = event_obj.get("packetId") or ""
+            lp = event_obj.get("participant") or {}
+            if not sch_id and pkt_id:
+                row_sch = cur.execute(
+                    "SELECT id FROM cbt_schedules WHERE packet_id = ? LIMIT 1", (pkt_id,)
+                ).fetchone()
+                if row_sch:
+                    sch_id = row_sch["id"]
+            if sch_id and lp.get("studentId") and lp.get("studentId") not in LEGACY_DUMMY_STUDENT_IDS:
+                cur.execute(
+                    """
+                    INSERT OR REPLACE INTO cbt_live_participants (
+                      schedule_id, student_id, student_name, nomor_peserta,
+                      kelas, status, answered_count, total_questions,
+                      remaining_minutes, violations, ip_address, last_activity
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sch_id,
+                        lp.get("studentId", ""),
+                        lp.get("studentName", ""),
+                        lp.get("nomorPeserta", ""),
+                        lp.get("kelas", ""),
+                        lp.get("status", "MENGERJAKAN"),
+                        int(lp.get("answeredCount", 0)),
+                        int(lp.get("totalQuestions", 0)),
+                        int(lp.get("remainingMinutes", 0)),
+                        int(lp.get("violations", 0)),
+                        lp.get("ipAddress", "LAN"),
+                        lp.get("lastActivity", "Baru saja"),
+                    ),
+                )
+                selesai_cnt = cur.execute(
+                    "SELECT COUNT(*) AS c FROM cbt_live_participants WHERE schedule_id = ? AND status = 'SELESAI'",
+                    (sch_id,),
+                ).fetchone()["c"]
+                hadir_cnt = cur.execute(
+                    "SELECT COUNT(*) AS c FROM cbt_live_participants WHERE schedule_id = ? AND status != 'BELUM_LOGIN'",
+                    (sch_id,),
+                ).fetchone()["c"]
+                cur.execute(
+                    "UPDATE cbt_schedules SET selesai_count = ?, hadir_count = MAX(hadir_count, ?) WHERE id = ?",
+                    (int(selesai_cnt), int(hadir_cnt), sch_id),
+                )
+
+        if ev_type == "STUDENT_SUBMITTED":
+            sub = event_obj.get("submission") or {}
+            if sub.get("id") and sub.get("id") not in LEGACY_DUMMY_SUBMISSION_IDS:
+                cur.execute(
+                    """
+                    INSERT OR REPLACE INTO cbt_submissions (
+                      id, schedule_id, packet_id, student_id, student_name,
+                      nomor_peserta, jenjang, kelas, mapel, submitted_at,
+                      duration_used_minutes, pg_score, pg_kompleks_score,
+                      benar_salah_score, esai_score, total_score, kkm,
+                      is_esai_graded, violations, essay_answer_sample,
+                      essay_question_prompt, item_responses_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sub["id"],
+                        sub.get("scheduleId", ""),
+                        sub.get("packetId", ""),
+                        sub.get("studentId", ""),
+                        sub.get("studentName", ""),
+                        sub.get("nomorPeserta", ""),
+                        sub.get("jenjang", "MTs"),
+                        sub.get("kelas", ""),
+                        sub.get("mapel", ""),
+                        sub.get("submittedAt", ""),
+                        int(sub.get("durationUsedMinutes", 0)),
+                        int(sub.get("pgScore", 0)),
+                        int(sub.get("pgKompleksScore", 0)),
+                        int(sub.get("benarSalahScore", 0)),
+                        int(sub.get("esaiScore", 0)),
+                        int(sub.get("totalScore", 0)),
+                        int(sub.get("kkm", 75)),
+                        1 if sub.get("isEsaiGraded") else 0,
+                        int(sub.get("violations", 0)),
+                        sub.get("essayAnswerSample"),
+                        sub.get("essayQuestionPrompt"),
+                        json.dumps(sub["itemResponses"])
+                        if sub.get("itemResponses")
+                        else None,
+                    ),
+                )
+
+        elif ev_type == "PROCTOR_ACTION" and event_obj.get("action") == "RESET_SUBMIT":
+            pkt_id = event_obj.get("packetId") or ""
+            sch_id = event_obj.get("scheduleId") or ""
+            std_id = event_obj.get("studentId") or ""
+            no_peserta = event_obj.get("nomorPeserta") or ""
+            cur.execute(
+                """
+                DELETE FROM cbt_submissions
+                WHERE (packet_id = ? OR schedule_id = ?)
+                  AND (student_id = ? OR nomor_peserta = ?)
+                """,
+                (pkt_id, sch_id, std_id, no_peserta),
+            )
+            cur.execute(
+                """
+                UPDATE cbt_live_participants
+                SET status = 'MENGERJAKAN', violations = 0, last_activity = 'Direset Pengawas'
+                WHERE (schedule_id = ?) AND (student_id = ? OR nomor_peserta = ?)
+                """,
+                (sch_id, std_id, no_peserta),
+            )
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
     conn.close()
     return {"ok": True, "timestamp": ts}
 

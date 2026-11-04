@@ -204,9 +204,10 @@ export function App() {
     };
   }, []);
 
-  // Auto-sync state changes to Local SQLite Server Database (debounced 350ms)
+  // Auto-sync state changes to Local SQLite Server Database (debounced 350ms, Admin & Guru only;
+  // Student devices push atomic STUDENT_PROGRESS and STUDENT_SUBMITTED events via /api/cbt/events)
   useEffect(() => {
-    if (!sqliteReadyRef.current) return;
+    if (!sqliteReadyRef.current || authSession?.role === 'siswa') return;
     const timer = setTimeout(() => {
       saveStateToSqlite({
         settings: currentSettings,
@@ -218,7 +219,7 @@ export function App() {
       });
     }, 350);
     return () => clearTimeout(timer);
-  }, [packets, schedules, students, teachers, submissions, currentSettings]);
+  }, [packets, schedules, students, teachers, submissions, currentSettings, authSession?.role]);
 
   // Sync to localStorage & theme attribute
   useEffect(() => {

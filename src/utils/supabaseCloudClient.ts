@@ -452,6 +452,13 @@ export async function saveMasterStateToSupabase(
 
     if (!res.ok) return false;
 
+    if (payload.schedules.length === 0) {
+      await fetch(`${cfg.url}/rest/v1/cbt_live_participants?schedule_id=neq.__none__`, {
+        method: 'DELETE',
+        headers: buildHeaders(cfg.anonKey),
+      });
+    }
+
     // Also upsert any graded or existing submissions without deleting concurrent ones
     if (Array.isArray(payload.submissions) && payload.submissions.length > 0) {
       const subRows = payload.submissions.map((sub) => ({
@@ -580,6 +587,57 @@ export async function pushAtomicEventToSupabase(message: LiveSyncMessage): Promi
     }
   } catch {
     // Ignore transient network errors on background sync
+  }
+}
+
+export async function deleteScheduleFromSupabase(scheduleId: string): Promise<void> {
+  const cfg = getSupabaseConfig();
+  if (!cfg || !scheduleId) return;
+  try {
+    await fetch(
+      `${cfg.url}/rest/v1/cbt_live_participants?schedule_id=eq.${encodeURIComponent(scheduleId)}`,
+      {
+        method: 'DELETE',
+        headers: buildHeaders(cfg.anonKey),
+      }
+    );
+  } catch {
+    // ignore
+  }
+}
+
+export async function deleteStudentFromSupabase(studentId: string): Promise<void> {
+  const cfg = getSupabaseConfig();
+  if (!cfg || !studentId) return;
+  try {
+    await Promise.all([
+      fetch(
+        `${cfg.url}/rest/v1/cbt_live_participants?student_id=eq.${encodeURIComponent(studentId)}`,
+        {
+          method: 'DELETE',
+          headers: buildHeaders(cfg.anonKey),
+        }
+      ),
+      fetch(`${cfg.url}/rest/v1/cbt_submissions?student_id=eq.${encodeURIComponent(studentId)}`, {
+        method: 'DELETE',
+        headers: buildHeaders(cfg.anonKey),
+      }),
+    ]);
+  } catch {
+    // ignore
+  }
+}
+
+export async function deleteSubmissionFromSupabase(submissionId: string): Promise<void> {
+  const cfg = getSupabaseConfig();
+  if (!cfg || !submissionId) return;
+  try {
+    await fetch(`${cfg.url}/rest/v1/cbt_submissions?id=eq.${encodeURIComponent(submissionId)}`, {
+      method: 'DELETE',
+      headers: buildHeaders(cfg.anonKey),
+    });
+  } catch {
+    // ignore
   }
 }
 

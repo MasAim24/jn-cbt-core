@@ -39,6 +39,9 @@ import {
   saveStateToSqlite,
 } from './utils/sqliteApiClient';
 import {
+  deleteScheduleFromSupabase,
+  deleteStudentFromSupabase,
+  deleteSubmissionFromSupabase,
   getSupabaseConfig,
   loadStateFromSupabase,
   saveMasterStateToSupabase,
@@ -510,6 +513,7 @@ export function App() {
   const handleDeleteSchedule = (scheduleId: string) => {
     sqliteReadyRef.current = true;
     setSchedules((prev) => prev.filter((item) => item.id !== scheduleId));
+    deleteScheduleFromSupabase(scheduleId);
   };
 
   const handleRefreshToken = (scheduleId: string) => {
@@ -543,7 +547,9 @@ export function App() {
   };
 
   const handleDeleteStudent = (id: string) => {
+    sqliteReadyRef.current = true;
     setStudents((prev) => prev.filter((item) => item.id !== id));
+    deleteStudentFromSupabase(id);
   };
 
   const handleSaveTeacher = (tch: Teacher) => {
@@ -592,7 +598,9 @@ export function App() {
   };
 
   const handleResetSubmissionRecord = (sub: ExamSubmission) => {
+    sqliteReadyRef.current = true;
     setSubmissions((prev) => prev.filter((item) => item.id !== sub.id));
+    deleteSubmissionFromSupabase(sub.id);
     handleResetStudentSubmission(sub.studentId, sub.packetId);
   };
 

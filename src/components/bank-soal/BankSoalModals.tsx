@@ -40,7 +40,7 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
       : effectiveJenjangs[0]?.value || 'MTs';
 
   const [newTitle, setNewTitle] = useState('');
-  const [newMapel, setNewMapel] = useState(defaultMapel || '');
+  const [newMapel, setNewMapel] = useState('');
   const [newJenjang, setNewJenjang] = useState<Jenjang>(initialJenjang);
   const [newKelas, setNewKelas] = useState('VIII-A');
   const [newGuru, setNewGuru] = useState(defaultGuruNama || 'Tim Kurikulum / Guru Mapel');
@@ -58,13 +58,12 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
         : effectiveJenjangs[0]?.value || 'MTs';
     setNewJenjang(nextJ);
     setNewOptionCount(JENJANG_META[nextJ].defaultOptions);
-    if (defaultMapel) setNewMapel(defaultMapel);
     if (defaultGuruNama) setNewGuru(defaultGuruNama);
     if (nextJ === 'MA') setNewKelas('X / XI / XII MA');
     else if (nextJ === 'MTs') setNewKelas('VII / VIII / IX MTs');
     else if (nextJ === 'Wustho') setNewKelas('Marhalah Wustho');
     else if (nextJ === 'Ulya') setNewKelas("Marhalah 'Ulya");
-  }, [isOpen, defaultJenjang, defaultMapel, defaultGuruNama]);
+  }, [isOpen, defaultJenjang, defaultGuruNama]);
 
   if (!isOpen) return null;
 
@@ -90,7 +89,7 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
     };
     onCreatePacket(created);
     setNewTitle('');
-    if (!defaultMapel) setNewMapel('');
+    setNewMapel('');
     onClose();
   };
 

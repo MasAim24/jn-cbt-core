@@ -648,19 +648,17 @@ export const TeacherFormModal: React.FC<TeacherFormModalProps> = ({
             <div>
               <label className="font-bold text-text-main block mb-1">
                 {tPeran === 'Kepala Madrasah / Mudir'
-                  ? 'Jabatan Kepemimpinan'
-                  : 'Mata Pelajaran / Kitab Ampu'}{' '}
-                <span className="text-rose-500">*</span>
+                  ? 'Jabatan Kepemimpinan (Opsional)'
+                  : 'Mata Pelajaran / Kitab Ampu (Opsional — Ditentukan Guru Saat Buat Soal)'}
               </label>
               <input
                 type="text"
-                required
                 value={tMapel}
                 onChange={(e) => setTMapel(e.target.value)}
                 placeholder={
                   tPeran === 'Kepala Madrasah / Mudir'
-                    ? 'Contoh: Kepala Madrasah Tsanawiyah / Mudir Wustho'
-                    : 'Contoh: Fiqih Syafi’iyah / Nahwu Jurumiyah'
+                    ? 'Contoh: Kepala Madrasah / Mudir Unit'
+                    : 'Boleh dikosongkan (Guru bebas mengisi mapel saat membuat Paket Soal)'
                 }
                 className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
               />

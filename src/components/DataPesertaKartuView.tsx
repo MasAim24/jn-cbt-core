@@ -325,7 +325,9 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
       password: tPassword.trim() || 'guru123',
       nama: tNama.trim(),
       gelar: tGelar.trim(),
-      mapelAmpu: tMapel.trim() || tPeran,
+      mapelAmpu:
+        tMapel.trim() ||
+        (tPeran === 'Guru Mapel' ? 'Fleksibel (Sesuai Paket Soal)' : tPeran),
       kelasBinaan: tKelasBinaan.trim() || undefined,
       jenjangAmpu: tJenjangList.length > 0 ? tJenjangList : ['MTs'],
       peran: tPeran,

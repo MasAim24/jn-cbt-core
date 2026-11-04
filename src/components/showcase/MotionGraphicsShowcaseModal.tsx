@@ -134,13 +134,14 @@ export const MotionGraphicsShowcaseModal: React.FC<MotionGraphicsShowcaseModalPr
 
   // Preload the 6 generated sticker images for drawing inside the algorithmic canvas
   useEffect(() => {
+    const assetBase = (import.meta as any).env?.BASE_URL || './';
     const keys: Record<string, string> = {
-      hero: '/stickers/cbt-hero.jpg',
-      token: '/stickers/token-live.jpg',
-      bank: '/stickers/bank-soal.jpg',
-      peserta: '/stickers/peserta-kartu.jpg',
-      rekap: '/stickers/rekap-nilai.jpg',
-      pengaturan: '/stickers/pengaturan.jpg',
+      hero: `${assetBase}stickers/cbt-hero.jpg`,
+      token: `${assetBase}stickers/token-live.jpg`,
+      bank: `${assetBase}stickers/bank-soal.jpg`,
+      peserta: `${assetBase}stickers/peserta-kartu.jpg`,
+      rekap: `${assetBase}stickers/rekap-nilai.jpg`,
+      pengaturan: `${assetBase}stickers/pengaturan.jpg`,
     };
     Object.entries(keys).forEach(([k, url]) => {
       const img = new Image();

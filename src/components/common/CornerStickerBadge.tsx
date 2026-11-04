@@ -8,13 +8,15 @@ export type StickerType =
   | 'rekap-nilai'
   | 'pengaturan';
 
+const ASSET_BASE = (import.meta as any).env?.BASE_URL || './';
+
 const STICKER_PATHS: Record<StickerType, string> = {
-  'cbt-hero': '/stickers/cbt-hero.jpg',
-  'token-live': '/stickers/token-live.jpg',
-  'bank-soal': '/stickers/bank-soal.jpg',
-  'peserta-kartu': '/stickers/peserta-kartu.jpg',
-  'rekap-nilai': '/stickers/rekap-nilai.jpg',
-  pengaturan: '/stickers/pengaturan.jpg',
+  'cbt-hero': `${ASSET_BASE}stickers/cbt-hero.jpg`,
+  'token-live': `${ASSET_BASE}stickers/token-live.jpg`,
+  'bank-soal': `${ASSET_BASE}stickers/bank-soal.jpg`,
+  'peserta-kartu': `${ASSET_BASE}stickers/peserta-kartu.jpg`,
+  'rekap-nilai': `${ASSET_BASE}stickers/rekap-nilai.jpg`,
+  pengaturan: `${ASSET_BASE}stickers/pengaturan.jpg`,
 };
 
 const processedStickerCache: Partial<Record<StickerType, string>> = {};

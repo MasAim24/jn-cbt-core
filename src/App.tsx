@@ -42,9 +42,12 @@ import {
   deleteScheduleFromSupabase,
   deleteStudentFromSupabase,
   deleteSubmissionFromSupabase,
+  getPendingCloudPatches,
   getSupabaseConfig,
   loadStateFromSupabase,
+  patchMasterColumnInSupabase,
   saveMasterStateToSupabase,
+  upsertSubmissionToSupabase,
 } from './utils/supabaseCloudClient';
 
 const STORAGE_KEYS = {
@@ -210,8 +213,15 @@ export function App() {
     const initDatabases = async () => {
       const supaCfg = getSupabaseConfig(currentSettings);
       if (supaCfg) {
+        // First flush any pending local patches interrupted by a rapid page refresh
+        const pendingBefore = getPendingCloudPatches();
+        if (Object.keys(pendingBefore).length > 0) {
+          await patchMasterColumnInSupabase(pendingBefore, supaCfg);
+        }
+
         const cloudLoaded = await loadStateFromSupabase(supaCfg);
         if (mounted && cloudLoaded) {
+          const pendingNow = getPendingCloudPatches();
           if (cloudLoaded.empty) {
             await saveMasterStateToSupabase(
               {
@@ -225,19 +235,40 @@ export function App() {
               supaCfg
             );
           } else {
-            if (cloudLoaded.settings) {
+            if (pendingNow.settings_json) {
+              setSettings([normalizeSchoolSettings(pendingNow.settings_json)]);
+            } else if (cloudLoaded.settings) {
               const normalizedCloudSettings = normalizeSchoolSettings(cloudLoaded.settings);
               setSettings([normalizedCloudSettings]);
             }
-            if (Array.isArray(cloudLoaded.packets)) {
+
+            if (pendingNow.packets_json) {
+              setPackets(pendingNow.packets_json);
+            } else if (Array.isArray(cloudLoaded.packets)) {
               setPackets(cloudLoaded.packets);
             }
-            if (Array.isArray(cloudLoaded.schedules)) {
+
+            if (pendingNow.schedules_json) {
+              setSchedules(pendingNow.schedules_json);
+            } else if (Array.isArray(cloudLoaded.schedules)) {
               setSchedules(cloudLoaded.schedules);
             }
-            if (Array.isArray(cloudLoaded.students)) setStudents(cloudLoaded.students);
-            if (Array.isArray(cloudLoaded.teachers)) setTeachers(cloudLoaded.teachers);
-            if (Array.isArray(cloudLoaded.submissions)) setSubmissions(cloudLoaded.submissions);
+
+            if (pendingNow.students_json) {
+              setStudents(pendingNow.students_json);
+            } else if (Array.isArray(cloudLoaded.students)) {
+              setStudents(cloudLoaded.students);
+            }
+
+            if (pendingNow.teachers_json) {
+              setTeachers(pendingNow.teachers_json);
+            } else if (Array.isArray(cloudLoaded.teachers)) {
+              setTeachers(cloudLoaded.teachers);
+            }
+
+            if (Array.isArray(cloudLoaded.submissions)) {
+              setSubmissions(cloudLoaded.submissions);
+            }
           }
           setTimeout(() => {
             sqliteReadyRef.current = true;
@@ -291,73 +322,85 @@ export function App() {
     };
   }, []);
 
-  // Periodic background cloud refresh for Login Portal & Proctor/Rekap views
+  // Periodic READ-ONLY background cloud refresh for Login Portal & Admin/Guru views.
+  // Never triggers a full-table overwrite back to Supabase.
   useEffect(() => {
     const supaCfg = getSupabaseConfig(currentSettings);
     if (!supaCfg || authSession?.role === 'siswa') return;
 
     const interval = setInterval(async () => {
+      const pending = getPendingCloudPatches();
+      if (Object.keys(pending).length > 0) {
+        await patchMasterColumnInSupabase(pending, supaCfg);
+      }
+
       const cloudLoaded = await loadStateFromSupabase(supaCfg);
       if (!cloudLoaded || cloudLoaded.empty) return;
-      if (!authSession) {
-        // On Login screen, keep student/teacher roster & schedules fresh
-        if (Array.isArray(cloudLoaded.students)) setStudents(cloudLoaded.students);
-        if (Array.isArray(cloudLoaded.teachers)) setTeachers(cloudLoaded.teachers);
-        if (Array.isArray(cloudLoaded.schedules)) {
-          setSchedules(cloudLoaded.schedules);
-        }
-        if (Array.isArray(cloudLoaded.packets)) {
-          setPackets(cloudLoaded.packets);
-        }
-      } else {
-        // For logged-in Admin/Guru, merge incoming student submissions & live participant status
-        if (Array.isArray(cloudLoaded.submissions)) {
-          setSubmissions((prev) => {
-            const byId = new Map(prev.map((s) => [s.id, s]));
-            cloudLoaded.submissions.forEach((s) => byId.set(s.id, s));
-            return Array.from(byId.values());
-          });
-        }
-        if (Array.isArray(cloudLoaded.schedules) && cloudLoaded.schedules.length > 0) {
-          setSchedules((prev) =>
-            prev.map((sch) => {
-              const match = cloudLoaded.schedules.find((cs) => cs.id === sch.id);
-              return match
-                ? {
-                    ...sch,
-                    liveParticipants: match.liveParticipants,
-                    hadirCount: match.hadirCount,
-                    selesaiCount: match.selesaiCount,
-                  }
-                : sch;
-            })
-          );
-        }
+      const latestPending = getPendingCloudPatches();
+
+      if (!latestPending.students_json && Array.isArray(cloudLoaded.students)) {
+        setStudents((prev) =>
+          JSON.stringify(prev) === JSON.stringify(cloudLoaded.students)
+            ? prev
+            : cloudLoaded.students
+        );
+      }
+      if (!latestPending.teachers_json && Array.isArray(cloudLoaded.teachers)) {
+        setTeachers((prev) =>
+          JSON.stringify(prev) === JSON.stringify(cloudLoaded.teachers)
+            ? prev
+            : cloudLoaded.teachers
+        );
+      }
+      if (!latestPending.packets_json && Array.isArray(cloudLoaded.packets)) {
+        setPackets((prev) =>
+          JSON.stringify(prev) === JSON.stringify(cloudLoaded.packets)
+            ? prev
+            : cloudLoaded.packets
+        );
+      }
+      if (!latestPending.schedules_json && Array.isArray(cloudLoaded.schedules)) {
+        setSchedules((prev) =>
+          JSON.stringify(prev) === JSON.stringify(cloudLoaded.schedules)
+            ? prev
+            : cloudLoaded.schedules
+        );
+      }
+      if (!latestPending.settings_json && cloudLoaded.settings) {
+        const normalizedCloud = normalizeSchoolSettings(cloudLoaded.settings);
+        setSettings((prev) =>
+          JSON.stringify(prev[0]) === JSON.stringify(normalizedCloud)
+            ? prev
+            : [normalizedCloud]
+        );
+      }
+      if (Array.isArray(cloudLoaded.submissions)) {
+        setSubmissions((prev) => {
+          const byId = new Map(prev.map((s) => [s.id, s]));
+          cloudLoaded.submissions.forEach((s) => byId.set(s.id, s));
+          const merged = Array.from(byId.values());
+          return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+        });
       }
     }, 12000);
 
     return () => clearInterval(interval);
   }, [currentSettings, authSession]);
 
-  // Auto-sync state changes to Cloud Supabase & Local SQLite Server Database (debounced 400ms, Admin & Guru only;
-  // Student devices push atomic STUDENT_PROGRESS and STUDENT_SUBMITTED events)
+  // Auto-sync state changes ONLY to Local SQLite Server Database when running on localhost.
+  // Cloud Supabase updates are dispatched explicitly on user actions via patchMasterColumnInSupabase
+  // so background polls or stale tabs can NEVER overwrite cbt_app_state.
   useEffect(() => {
-    if (!sqliteReadyRef.current || authSession?.role === 'siswa') return;
+    if (!sqliteReadyRef.current || authSession?.role === 'siswa' || !isLocalSqliteHost()) return;
     const timer = setTimeout(() => {
-      const payload = {
+      saveStateToSqlite({
         settings: currentSettings,
         packets,
         schedules,
         students,
         teachers,
         submissions,
-      };
-      if (getSupabaseConfig(currentSettings)) {
-        saveMasterStateToSupabase(payload);
-      }
-      if (isLocalSqliteHost()) {
-        saveStateToSqlite(payload);
-      }
+      });
     }, 400);
     return () => clearTimeout(timer);
   }, [packets, schedules, students, teachers, submissions, currentSettings, authSession?.role]);
@@ -473,8 +516,17 @@ export function App() {
           setPackets(JSON.parse(ev.newValue));
         } else if (ev.key === STORAGE_KEYS.SCHEDULES) {
           setSchedules(JSON.parse(ev.newValue));
+        } else if (ev.key === STORAGE_KEYS.STUDENTS) {
+          setStudents(JSON.parse(ev.newValue));
+        } else if (ev.key === STORAGE_KEYS.TEACHERS) {
+          setTeachers(JSON.parse(ev.newValue));
         } else if (ev.key === STORAGE_KEYS.SUBMISSIONS) {
           setSubmissions(JSON.parse(ev.newValue));
+        } else if (ev.key === STORAGE_KEYS.SETTINGS) {
+          const parsed = JSON.parse(ev.newValue);
+          if (Array.isArray(parsed) && parsed[0]) {
+            setSettings([normalizeSchoolSettings(parsed[0])]);
+          }
         }
       } catch {
         // Ignore parse error
@@ -488,94 +540,176 @@ export function App() {
     };
   }, []);
 
-  // Handlers
+  // Handlers — All mutations synchronously update localStorage AND immediately PATCH
+  // only the affected column in Supabase cbt_app_state (backed by a pending-patch journal).
   const handleSavePacket = (pkt: ExamPacket) => {
     sqliteReadyRef.current = true;
     setPackets((prev) => {
       const exists = prev.some((item) => item.id === pkt.id);
-      return exists ? prev.map((item) => (item.id === pkt.id ? pkt : item)) : [pkt, ...prev];
+      const next = exists
+        ? prev.map((item) => (item.id === pkt.id ? pkt : item))
+        : [pkt, ...prev];
+      localStorage.setItem(STORAGE_KEYS.PACKETS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ packets_json: next });
+      return next;
     });
   };
 
   const handleDeletePacket = (packetId: string) => {
     sqliteReadyRef.current = true;
-    setPackets((prev) => prev.filter((item) => item.id !== packetId));
+    setPackets((prev) => {
+      const next = prev.filter((item) => item.id !== packetId);
+      localStorage.setItem(STORAGE_KEYS.PACKETS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ packets_json: next });
+      return next;
+    });
   };
 
   const handleSaveSchedule = (sch: ExamSchedule) => {
     sqliteReadyRef.current = true;
     setSchedules((prev) => {
       const exists = prev.some((item) => item.id === sch.id);
-      return exists ? prev.map((item) => (item.id === sch.id ? sch : item)) : [sch, ...prev];
+      const next = exists
+        ? prev.map((item) => (item.id === sch.id ? sch : item))
+        : [sch, ...prev];
+      localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(next));
+      patchMasterColumnInSupabase({ schedules_json: next });
+      return next;
     });
   };
 
   const handleDeleteSchedule = (scheduleId: string) => {
     sqliteReadyRef.current = true;
-    setSchedules((prev) => prev.filter((item) => item.id !== scheduleId));
+    setSchedules((prev) => {
+      const next = prev.filter((item) => item.id !== scheduleId);
+      localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(next));
+      patchMasterColumnInSupabase({ schedules_json: next });
+      return next;
+    });
     deleteScheduleFromSupabase(scheduleId);
   };
 
   const handleRefreshToken = (scheduleId: string) => {
+    sqliteReadyRef.current = true;
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     const nextToken = Array.from({ length: 6 })
       .map(() => chars[Math.floor(Math.random() * chars.length)])
       .join('');
-    setSchedules((prev) =>
-      prev.map((s) => (s.id === scheduleId ? { ...s, token: nextToken } : s))
-    );
+    setSchedules((prev) => {
+      const next = prev.map((s) => (s.id === scheduleId ? { ...s, token: nextToken } : s));
+      localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(next));
+      patchMasterColumnInSupabase({ schedules_json: next });
+      return next;
+    });
   };
 
   const handleSaveStudent = (std: Student) => {
+    sqliteReadyRef.current = true;
     setStudents((prev) => {
       const exists = prev.some((item) => item.id === std.id);
-      return exists ? prev.map((item) => (item.id === std.id ? std : item)) : [std, ...prev];
+      const next = exists
+        ? prev.map((item) => (item.id === std.id ? std : item))
+        : [std, ...prev];
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ students_json: next });
+      return next;
     });
   };
 
   const handleBulkSaveStudents = (list: Student[]) => {
-    setStudents((prev) => [...list, ...prev]);
+    sqliteReadyRef.current = true;
+    setStudents((prev) => {
+      const next = [...list, ...prev];
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ students_json: next });
+      return next;
+    });
   };
 
   const handleRegenerateAllPins = () => {
-    setStudents((prev) =>
-      prev.map((s) => ({
+    sqliteReadyRef.current = true;
+    setStudents((prev) => {
+      const next = prev.map((s) => ({
         ...s,
         pin: String(Math.floor(100000 + Math.random() * 900000)),
-      }))
-    );
+      }));
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ students_json: next });
+      return next;
+    });
   };
 
   const handleDeleteStudent = (id: string) => {
     sqliteReadyRef.current = true;
-    setStudents((prev) => prev.filter((item) => item.id !== id));
+    setStudents((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ students_json: next });
+      return next;
+    });
     deleteStudentFromSupabase(id);
   };
 
   const handleSaveTeacher = (tch: Teacher) => {
+    sqliteReadyRef.current = true;
     setTeachers((prev) => {
       const exists = prev.some((item) => item.id === tch.id);
-      return exists ? prev.map((item) => (item.id === tch.id ? tch : item)) : [tch, ...prev];
+      const next = exists
+        ? prev.map((item) => (item.id === tch.id ? tch : item))
+        : [tch, ...prev];
+      localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ teachers_json: next });
+      return next;
     });
   };
 
   const handleDeleteTeacher = (id: string) => {
-    setTeachers((prev) => prev.filter((item) => item.id !== id));
-  };
-
-  const handleUpdateSubmission = (sub: ExamSubmission) => {
-    setSubmissions((prev) => {
-      const exists = prev.some((item) => item.id === sub.id);
-      return exists ? prev.map((item) => (item.id === sub.id ? sub : item)) : [sub, ...prev];
+    sqliteReadyRef.current = true;
+    setTeachers((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ teachers_json: next });
+      return next;
     });
   };
 
+  const handleSaveSettings = (next: SchoolSettings) => {
+    sqliteReadyRef.current = true;
+    const normalized = normalizeSchoolSettings(next);
+    setSettings([normalized]);
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify([normalized]));
+    patchMasterColumnInSupabase({ settings_json: normalized });
+    if (authSession?.role === 'admin' && normalized.adminName) {
+      setAuthSession((prev) =>
+        prev ? { ...prev, name: normalized.adminName || prev.name } : prev
+      );
+    }
+  };
+
+  const handleUpdateSubmission = (sub: ExamSubmission) => {
+    sqliteReadyRef.current = true;
+    setSubmissions((prev) => {
+      const exists = prev.some((item) => item.id === sub.id);
+      const next = exists
+        ? prev.map((item) => (item.id === sub.id ? sub : item))
+        : [sub, ...prev];
+      localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(next));
+      return next;
+    });
+    upsertSubmissionToSupabase(sub);
+  };
+
   const handleResetStudentSubmission = (studentId: string, packetId: string) => {
-    setSubmissions((prev) =>
-      prev.filter((item) => !(item.studentId === studentId && item.packetId === packetId))
-    );
-    setSchedules((prev) =>
-      prev.map((sch) => {
+    sqliteReadyRef.current = true;
+    setSubmissions((prev) => {
+      const next = prev.filter(
+        (item) => !(item.studentId === studentId && item.packetId === packetId)
+      );
+      localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(next));
+      return next;
+    });
+    setSchedules((prev) => {
+      const next = prev.map((sch) => {
         if (sch.packetId !== packetId) return sch;
         const updatedList = sch.liveParticipants.map((p) =>
           p.studentId === studentId
@@ -593,30 +727,51 @@ export function App() {
           selesaiCount: updatedList.filter((p) => p.status === 'SELESAI').length,
           liveParticipants: updatedList,
         };
-      })
-    );
+      });
+      localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(next));
+      patchMasterColumnInSupabase({ schedules_json: next });
+      return next;
+    });
   };
 
   const handleResetSubmissionRecord = (sub: ExamSubmission) => {
     sqliteReadyRef.current = true;
-    setSubmissions((prev) => prev.filter((item) => item.id !== sub.id));
+    setSubmissions((prev) => {
+      const next = prev.filter((item) => item.id !== sub.id);
+      localStorage.setItem(STORAGE_KEYS.SUBMISSIONS, JSON.stringify(next));
+      return next;
+    });
     deleteSubmissionFromSupabase(sub.id);
     handleResetStudentSubmission(sub.studentId, sub.packetId);
   };
 
   const handleChangeSelfPassword = (newPass: string) => {
     if (!authSession) return;
+    sqliteReadyRef.current = true;
     if (authSession.role === 'admin') {
-      setSettings((prev) => [{ ...(prev[0] || INITIAL_SETTINGS), adminPassword: newPass }]);
+      setSettings((prev) => {
+        const nextSetting = normalizeSchoolSettings({
+          ...(prev[0] || INITIAL_SETTINGS),
+          adminPassword: newPass,
+        });
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify([nextSetting]));
+        patchMasterColumnInSupabase({ settings_json: nextSetting });
+        return [nextSetting];
+      });
     } else if (authSession.role === 'guru') {
-      setTeachers((prev) =>
-        prev.map((t) => (t.id === authSession.id ? { ...t, password: newPass } : t))
-      );
+      setTeachers((prev) => {
+        const next = prev.map((t) =>
+          t.id === authSession.id ? { ...t, password: newPass } : t
+        );
+        localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(next));
+        patchMasterColumnInSupabase({ teachers_json: next });
+        return next;
+      });
     }
   };
 
   const handleForceSyncSqlite = async (overrideSettings?: SchoolSettings) => {
-    const activeSettings = overrideSettings || currentSettings;
+    const activeSettings = normalizeSchoolSettings(overrideSettings || currentSettings);
     const payload = {
       settings: activeSettings,
       packets,
@@ -664,21 +819,50 @@ export function App() {
   };
 
   const handleResetDemoData = () => {
+    sqliteReadyRef.current = true;
+    const normalizedSettings = normalizeSchoolSettings(INITIAL_SETTINGS);
     setPackets(INITIAL_PACKETS);
     setSchedules(INITIAL_SCHEDULES);
     setStudents(INITIAL_STUDENTS);
     setTeachers(INITIAL_TEACHERS);
     setSubmissions(INITIAL_SUBMISSIONS);
-    setSettings([INITIAL_SETTINGS]);
+    setSettings([normalizedSettings]);
+    saveMasterStateToSupabase({
+      settings: normalizedSettings,
+      packets: INITIAL_PACKETS,
+      schedules: INITIAL_SCHEDULES,
+      students: INITIAL_STUDENTS,
+      teachers: INITIAL_TEACHERS,
+      submissions: INITIAL_SUBMISSIONS,
+    });
   };
 
   const handleImportFullBackup = (data: any) => {
-    if (Array.isArray(data.packets)) setPackets(data.packets);
-    if (Array.isArray(data.schedules)) setSchedules(data.schedules);
-    if (Array.isArray(data.students)) setStudents(data.students);
-    if (Array.isArray(data.teachers)) setTeachers(data.teachers);
-    if (Array.isArray(data.submissions)) setSubmissions(data.submissions);
-    if (data.settings) setSettings([data.settings]);
+    sqliteReadyRef.current = true;
+    const nextPackets = Array.isArray(data.packets) ? data.packets : packets;
+    const nextSchedules = Array.isArray(data.schedules) ? data.schedules : schedules;
+    const nextStudents = Array.isArray(data.students) ? data.students : students;
+    const nextTeachers = Array.isArray(data.teachers) ? data.teachers : teachers;
+    const nextSubmissions = Array.isArray(data.submissions) ? data.submissions : submissions;
+    const nextSettings = data.settings
+      ? normalizeSchoolSettings(data.settings)
+      : currentSettings;
+
+    setPackets(nextPackets);
+    setSchedules(nextSchedules);
+    setStudents(nextStudents);
+    setTeachers(nextTeachers);
+    setSubmissions(nextSubmissions);
+    setSettings([nextSettings]);
+
+    saveMasterStateToSupabase({
+      settings: nextSettings,
+      packets: nextPackets,
+      schedules: nextSchedules,
+      students: nextStudents,
+      teachers: nextTeachers,
+      submissions: nextSubmissions,
+    });
   };
 
   const handleExportFullBackup = () => {
@@ -904,7 +1088,7 @@ export function App() {
                     onDeleteStudent={handleDeleteStudent}
                     onSaveTeacher={handleSaveTeacher}
                     onDeleteTeacher={handleDeleteTeacher}
-                    onSaveSettings={(next) => setSettings([next])}
+                    onSaveSettings={handleSaveSettings}
                     authSession={effectiveAuthSession}
                   />
                 )}
@@ -928,14 +1112,7 @@ export function App() {
                     students={students}
                     teachers={teachers}
                     onNavigateTab={setActiveTab}
-                    onSaveSettings={(next) => {
-                      setSettings([next]);
-                      if (authSession?.role === 'admin' && next.adminName) {
-                        setAuthSession((prev) =>
-                          prev ? { ...prev, name: next.adminName || prev.name } : prev
-                        );
-                      }
-                    }}
+                    onSaveSettings={handleSaveSettings}
                     onResetDemoData={handleResetDemoData}
                     onExportFullBackup={handleExportFullBackup}
                     onImportFullBackup={handleImportFullBackup}

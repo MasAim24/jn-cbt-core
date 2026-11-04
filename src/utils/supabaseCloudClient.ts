@@ -240,11 +240,15 @@ export async function checkSupabaseConnection(
       'pkt-ulya-01',
     ]);
     const legacyDummySchedules = new Set(['sch-01', 'sch-02', 'sch-03', 'sch-04']);
+    const legacyDummyTeachers = new Set(['tch-1', 'tch-2', 'tch-3', 'tch-4']);
     const cleanPacketsCount = Array.isArray(row?.packets_json)
       ? row.packets_json.filter((p: any) => !legacyDummyPackets.has(p?.id)).length
       : 0;
     const cleanSchedulesCount = Array.isArray(row?.schedules_json)
       ? row.schedules_json.filter((s: any) => !legacyDummySchedules.has(s?.id)).length
+      : 0;
+    const cleanTeachersCount = Array.isArray(row?.teachers_json)
+      ? row.teachers_json.filter((t: any) => !legacyDummyTeachers.has(t?.id)).length
       : 0;
 
     return {
@@ -256,7 +260,7 @@ export async function checkSupabaseConnection(
         packets: cleanPacketsCount,
         schedules: cleanSchedulesCount,
         students: Array.isArray(row?.students_json) ? row.students_json.length : 0,
-        teachers: Array.isArray(row?.teachers_json) ? row.teachers_json.length : 0,
+        teachers: cleanTeachersCount,
         submissions: Array.isArray(subRows) ? subRows.length : 0,
       },
     };
@@ -384,12 +388,16 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
       'std-imp-1793664205470-1',
       'std-imp-1793664205470-2',
     ]);
+    const legacyDummyTeachers = new Set(['tch-1', 'tch-2', 'tch-3', 'tch-4']);
     const cleanPackets = Array.isArray(master.packets_json)
       ? (master.packets_json as ExamPacket[]).filter((p) => !legacyDummyPackets.has(p.id))
       : [];
     const cleanSchedules = mergedSchedules.filter((s) => !legacyDummySchedules.has(s.id));
     const cleanStudents = Array.isArray(master.students_json)
       ? (master.students_json as Student[]).filter((s) => !legacyDummyStudents.has(s.id))
+      : [];
+    const cleanTeachers = Array.isArray(master.teachers_json)
+      ? (master.teachers_json as Teacher[]).filter((t) => !legacyDummyTeachers.has(t.id))
       : [];
 
     return {
@@ -399,11 +407,169 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
       packets: cleanPackets,
       schedules: cleanSchedules,
       students: cleanStudents,
-      teachers: Array.isArray(master.teachers_json) ? master.teachers_json : [],
+      teachers: cleanTeachers,
       submissions,
     };
   } catch {
     return null;
+  }
+}
+
+const PENDING_PATCHES_KEY = 'jn_cbt_pending_cloud_patches_v1';
+
+export interface MasterColumnsPatch {
+  settings_json?: SchoolSettings;
+  packets_json?: ExamPacket[];
+  schedules_json?: ExamSchedule[];
+  students_json?: Student[];
+  teachers_json?: Teacher[];
+}
+
+export function getPendingCloudPatches(): MasterColumnsPatch {
+  try {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem(PENDING_PATCHES_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as MasterColumnsPatch;
+  } catch {
+    return {};
+  }
+}
+
+function setPendingCloudPatches(next: MasterColumnsPatch): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (Object.keys(next).length === 0) {
+      localStorage.removeItem(PENDING_PATCHES_KEY);
+    } else {
+      localStorage.setItem(PENDING_PATCHES_KEY, JSON.stringify(next));
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+/**
+ * Immediately patches ONLY the modified column(s) in `cbt_app_state` (id = 1)
+ * and persists a durable pending-patch journal in `localStorage` so even an
+ * instant page refresh (`F5`) never loses unsynced teacher/student/packet/schedule changes.
+ */
+export async function patchMasterColumnInSupabase(
+  columns: MasterColumnsPatch,
+  customCfg?: SupabaseCloudConfig | null
+): Promise<boolean> {
+  const normalizedColumns: MasterColumnsPatch = { ...columns };
+  const cfg = customCfg || getSupabaseConfig(columns.settings_json);
+  if (normalizedColumns.settings_json && cfg) {
+    normalizedColumns.settings_json = {
+      ...normalizedColumns.settings_json,
+      supabaseUrl: cfg.url,
+      supabaseAnonKey: cfg.anonKey,
+      syncMode: 'SUPABASE_HYBRID',
+    };
+  }
+
+  // Record in durable pending journal synchronously before network call
+  const snapshotBefore = { ...getPendingCloudPatches(), ...normalizedColumns };
+  setPendingCloudPatches(snapshotBefore);
+
+  if (!cfg) return false;
+
+  try {
+    const nowIso = new Date().toISOString();
+    const patchBody = {
+      ...normalizedColumns,
+      updated_at: nowIso,
+    };
+
+    const res = await fetchWithRetry(
+      `${cfg.url}/rest/v1/cbt_app_state?id=eq.1`,
+      {
+        method: 'PATCH',
+        headers: buildHeaders(cfg.anonKey, {
+          Prefer: 'return=representation',
+        }),
+        body: JSON.stringify(patchBody),
+      },
+      3
+    );
+
+    if (!res.ok) return false;
+
+    const updatedRows = await res.json().catch(() => []);
+    if (Array.isArray(updatedRows) && updatedRows.length === 0) {
+      // Row id=1 does not exist yet; insert with defaults + patched columns
+      const insertRes = await fetchWithRetry(
+        `${cfg.url}/rest/v1/cbt_app_state?on_conflict=id`,
+        {
+          method: 'POST',
+          headers: buildHeaders(cfg.anonKey, {
+            Prefer: 'resolution=merge-duplicates,return=minimal',
+          }),
+          body: JSON.stringify({
+            id: 1,
+            ...patchBody,
+          }),
+        },
+        2
+      );
+      if (!insertRes.ok) return false;
+    }
+
+    if (
+      Array.isArray(normalizedColumns.schedules_json) &&
+      normalizedColumns.schedules_json.length === 0
+    ) {
+      await fetch(`${cfg.url}/rest/v1/cbt_live_participants?schedule_id=neq.__none__`, {
+        method: 'DELETE',
+        headers: buildHeaders(cfg.anonKey),
+      }).catch(() => {});
+    }
+
+    // Clear only the keys whose values still match what we just flushed
+    const latestPending = getPendingCloudPatches();
+    for (const key of Object.keys(normalizedColumns) as (keyof MasterColumnsPatch)[]) {
+      if (
+        JSON.stringify(latestPending[key]) === JSON.stringify(normalizedColumns[key])
+      ) {
+        delete latestPending[key];
+      }
+    }
+    setPendingCloudPatches(latestPending);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function upsertSubmissionToSupabase(sub: ExamSubmission): Promise<boolean> {
+  const cfg = getSupabaseConfig();
+  if (!cfg || !sub || !sub.id) return false;
+  try {
+    const nowIso = new Date().toISOString();
+    const res = await fetchWithRetry(
+      `${cfg.url}/rest/v1/cbt_submissions?on_conflict=id`,
+      {
+        method: 'POST',
+        headers: buildHeaders(cfg.anonKey, {
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        }),
+        body: JSON.stringify({
+          id: sub.id,
+          schedule_id: sub.scheduleId || '',
+          packet_id: sub.packetId || '',
+          student_id: sub.studentId || '',
+          nomor_peserta: sub.nomorPeserta || '',
+          payload_json: sub,
+          updated_at: nowIso,
+        }),
+      },
+      2
+    );
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

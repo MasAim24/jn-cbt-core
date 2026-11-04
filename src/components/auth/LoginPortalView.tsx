@@ -62,32 +62,24 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
   settings,
   onLoginSuccess,
 }) => {
-  const [loginTab, setLoginTab] = useState<'siswa' | 'guru' | 'admin'>(() =>
-    students.length === 0 && teachers.length === 0 ? 'admin' : 'siswa'
-  );
+  const [loginTab, setLoginTab] = useState<'siswa' | 'guru' | 'admin'>('siswa');
   const [showPass, setShowPass] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Student Login State
-  const firstStudent = students[0];
-  const firstSchedule =
-    schedules.find((s) => s.jenjang === firstStudent?.jenjang) || schedules[0];
-  const [nomorPeserta, setNomorPeserta] = useState(firstStudent?.nomorPeserta || '');
-  const [pinSesi, setPinSesi] = useState(firstStudent?.pin || '');
-  const [tokenRuang, setTokenRuang] = useState(firstSchedule?.token || 'JN849K');
+  // Student Login State (clean empty fields for real CBT exam security)
+  const [nomorPeserta, setNomorPeserta] = useState('');
+  const [pinSesi, setPinSesi] = useState('');
+  const [tokenRuang, setTokenRuang] = useState('');
 
   // Teacher / Staff Login State
-  const firstTeacher = teachers[0];
-  const [teacherUsername, setTeacherUsername] = useState(
-    firstTeacher?.username || firstTeacher?.nip || ''
-  );
+  const [teacherUsername, setTeacherUsername] = useState('');
   const [teacherPass, setTeacherPass] = useState('');
 
   // Admin Login State
   const configuredAdminUser = settings.adminUsername || 'admin';
   const configuredAdminPass = settings.adminPassword || 'admin123';
-  const [adminUser, setAdminUser] = useState(configuredAdminUser);
-  const [adminPass, setAdminPass] = useState(configuredAdminPass);
+  const [adminUser, setAdminUser] = useState('');
+  const [adminPass, setAdminPass] = useState('');
 
   const getInitials = (fullName: string) => {
     const clean = fullName
@@ -96,14 +88,6 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
     const parts = clean.split(/\s+/);
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return clean.slice(0, 2).toUpperCase() || 'JN';
-  };
-
-  const handleSelectStudent = (s: Student) => {
-    setErrorMsg(null);
-    setNomorPeserta(s.nomorPeserta);
-    setPinSesi(s.pin);
-    const sch = schedules.find((item) => item.jenjang === s.jenjang) || schedules[0];
-    if (sch) setTokenRuang(sch.token);
   };
 
   const handleSubmitStudent = (e: React.FormEvent) => {
@@ -231,9 +215,7 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
     ];
 
     if (!validUsernames.includes(inputUser) || adminPass.trim() !== configuredAdminPass) {
-      setErrorMsg(
-        `Username atau Password Administrator tidak valid. (Default: ${configuredAdminUser} / ${configuredAdminPass})`
-      );
+      setErrorMsg('Username atau Password Administrator tidak sesuai.');
       return;
     }
 
@@ -276,8 +258,12 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
 
           <div className="relative z-10 space-y-5">
             <div className="inline-flex items-center gap-2.5">
-              <div className="w-11 h-11 rounded-2xl bg-[#F8B478] text-[#1E1645] font-extrabold text-base flex items-center justify-center shadow-md">
-                JN
+              <div className="w-11 h-11 rounded-full bg-white text-[#1E1645] font-extrabold text-base flex items-center justify-center shadow-md overflow-hidden p-0.5 shrink-0">
+                <img
+                  src={`${(import.meta as any).env?.BASE_URL || './'}logo-jabalnur.png`}
+                  alt="Logo Pondok Pesantren Jabal Nur"
+                  className="w-full h-full object-contain rounded-full"
+                />
               </div>
               <div>
                 <div className="text-base font-extrabold tracking-tight">
@@ -468,66 +454,13 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
                   </div>
                 </div>
 
-                {students.length === 0 ? (
-                  <div className="p-4 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 text-xs space-y-2">
-                    <div className="font-extrabold text-[#B85D19]">
-                      Database Santri Real Belum Diinput
-                    </div>
-                    <p className="text-[11px] text-text-muted leading-relaxed">
-                      Saat ini belum ada data peserta di dalam sistem karena seluruh data dummy
-                      telah dihapus. Silakan masuk melalui tab <strong>Admin Utama</strong> untuk
-                      menginput atau mengimport database santri real di lapangan.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setLoginTab('admin')}
-                      className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#211955] dark:text-[#F8B478] hover:underline"
-                    >
-                      <span>Beralih ke Login Admin Utama &rarr;</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="p-3.5 rounded-2xl bg-surface border border-border-subtle/80 space-y-2">
-                    <span className="text-[11px] font-extrabold text-text-muted block">
-                      Daftar Peserta Terdaftar ({students.length} Santri — Klik untuk pilih):
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
-                      {students.slice(0, 6).map((std) => {
-                        const isSelected = std.nomorPeserta === nomorPeserta;
-                        return (
-                          <button
-                            key={std.id}
-                            type="button"
-                            onClick={() => handleSelectStudent(std)}
-                            className={`p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
-                              isSelected
-                                ? 'bg-elevated border-[#211955] ring-2 ring-indigo-500/15'
-                                : 'bg-elevated/60 hover:bg-elevated border-border-subtle'
-                            }`}
-                          >
-                            <div className="min-w-0">
-                              <div className="font-extrabold text-text-main truncate">
-                                {std.nama}
-                              </div>
-                              <div className="text-[10px] font-mono text-text-muted">
-                                {std.nomorPeserta} • {std.kelas}
-                              </div>
-                            </div>
-                            <span
-                              className="px-2 py-0.5 rounded-md text-[10px] font-extrabold shrink-0 ml-2"
-                              style={{
-                                backgroundColor: JENJANG_META[std.jenjang].badgeBg,
-                                color: JENJANG_META[std.jenjang].badgeText,
-                              }}
-                            >
-                              {std.jenjang}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                <div className="p-3.5 rounded-2xl bg-surface border border-border-subtle/80 text-[11px] text-text-muted leading-relaxed">
+                  Masukkan <strong className="text-text-main">Nomor Peserta CBT</strong> dan{' '}
+                  <strong className="text-text-main">6 Digit PIN Sesi</strong> sesuai yang tertera
+                  pada Kartu Peserta Ujian Anda, beserta{' '}
+                  <strong className="text-text-main">Token Ruang</strong> yang diumumkan oleh
+                  Pengawas Ruang.
+                </div>
 
                 <button
                   type="submit"
@@ -551,7 +484,7 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
                     required
                     value={teacherUsername}
                     onChange={(e) => setTeacherUsername(e.target.value)}
-                    placeholder="Masukkan Username atau NIP/NIY yang dibuat oleh Admin..."
+                    placeholder="Masukkan Username atau NIP/NIY Anda..."
                     className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle font-mono font-bold text-text-main focus:outline-none focus:border-[#211955]"
                   />
                 </div>
@@ -579,58 +512,12 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
                   </div>
                 </div>
 
-                {teachers.length === 0 ? (
-                  <div className="p-4 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 text-xs space-y-2">
-                    <div className="font-extrabold text-[#B85D19]">
-                      Belum Ada Akun Pejabat / Wali Kelas / Guru Mapel Terdaftar
-                    </div>
-                    <p className="text-[11px] text-text-muted leading-relaxed">
-                      Data dummy guru telah dibersihkan. Silakan login terlebih dahulu menggunakan{' '}
-                      <strong>Akun Admin Utama</strong> untuk menginput data Kepala Madrasah/Kepala
-                      Diniyah, Wali Kelas, serta Guru Mapel beserta hak akses loginnya.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setLoginTab('admin')}
-                      className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#211955] dark:text-[#F8B478] hover:underline"
-                    >
-                      <span>Beralih ke Login Admin Utama &rarr;</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="p-3.5 rounded-2xl bg-surface border border-border-subtle/80 space-y-2">
-                    <span className="text-[11px] font-extrabold text-text-muted block">
-                      Akun Pejabat, Wali Kelas &amp; Guru Terdaftar ({teachers.length} Akun):
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
-                      {teachers.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => {
-                            setTeacherUsername(t.username || t.nip);
-                            setTeacherPass(t.password || 'guru123');
-                            setErrorMsg(null);
-                          }}
-                          className={`p-2.5 rounded-xl border text-left transition ${
-                            teacherUsername === (t.username || t.nip)
-                              ? 'bg-elevated border-[#211955] ring-2 ring-indigo-500/15'
-                              : 'bg-elevated/60 hover:bg-elevated border-border-subtle'
-                          }`}
-                        >
-                          <div className="font-extrabold text-text-main truncate">
-                            {t.nama}
-                            {t.gelar ? `, ${t.gelar}` : ''}
-                          </div>
-                          <div className="text-[10px] text-text-muted truncate">
-                            {t.peran} {t.kelasBinaan ? `(${t.kelasBinaan})` : ''} • User:{' '}
-                            <span className="font-mono font-bold">{t.username || t.nip}</span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <div className="p-3.5 rounded-2xl bg-surface border border-border-subtle/80 text-[11px] text-text-muted leading-relaxed">
+                  Gunakan <strong className="text-text-main">Username / NIP</strong> dan{' '}
+                  <strong className="text-text-main">Password</strong> yang telah didaftarkan oleh
+                  Administrator CBT untuk mengakses dashboard sesuai jabatan (Kepala Madrasah/Mudir,
+                  Wali Kelas, Guru Mapel, atau Pengawas Ruang).
+                </div>
 
                 <button
                   type="submit"
@@ -654,7 +541,7 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
                     required
                     value={adminUser}
                     onChange={(e) => setAdminUser(e.target.value)}
-                    placeholder="Default: admin"
+                    placeholder="Masukkan username administrator..."
                     className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle font-mono font-bold text-text-main focus:outline-none focus:border-[#211955]"
                   />
                 </div>
@@ -669,6 +556,7 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
                       required
                       value={adminPass}
                       onChange={(e) => setAdminPass(e.target.value)}
+                      placeholder="Masukkan password administrator..."
                       className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle font-mono font-bold text-text-main focus:outline-none focus:border-[#211955]"
                     />
                     <button
@@ -686,25 +574,14 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
                     <Lock className="w-4 h-4 text-[#211955] dark:text-[#F8B478] shrink-0" />
                     <div>
                       <div className="font-extrabold text-text-main">
-                        Akun Master Administrator CBT
+                        Akses Khusus Master Administrator CBT
                       </div>
                       <div className="text-[11px] text-text-muted">
-                        Dari akun ini Anda dapat menginput Kepala Madrasah/Diniyah, Wali Kelas,
-                        Guru Mapel beserta hak aksesnya &amp; database santri real.
+                        Pusat kendali konfigurasi lembaga, manajemen akun pejabat/guru, database
+                        santri real, dan sinkronisasi database.
                       </div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAdminUser(configuredAdminUser);
-                      setAdminPass(configuredAdminPass);
-                      setErrorMsg(null);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-elevated border border-border-subtle font-extrabold text-[11px] text-[#211955] dark:text-[#F8B478] shrink-0"
-                  >
-                    Isi Default
-                  </button>
                 </div>
 
                 <button

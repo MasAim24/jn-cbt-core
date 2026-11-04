@@ -52,23 +52,7 @@ const STORAGE_KEYS = {
   SUBMISSIONS: 'jn_cbt_submissions_v3',
   SETTINGS: 'jn_cbt_settings_v3',
   THEME: 'jn_cbt_theme_v3',
-  AUTH_SESSION: 'jn_cbt_auth_session_v3',
-};
-
-const DEFAULT_MASTER_ADMIN_SESSION: AuthenticatedSession = {
-  role: 'admin',
-  id: 'adm-master',
-  name: 'Administrator Utama CBT',
-  badgeRole: 'Master Administrator CBT',
-  avatarInitials: 'AD',
-  allowedTabs: [
-    'dashboard',
-    'bank-soal',
-    'jadwal-live',
-    'peserta-kartu',
-    'rekap-nilai',
-    'pengaturan',
-  ],
+  AUTH_SESSION: 'jn_cbt_auth_session_v4',
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -82,12 +66,14 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 export function App() {
-  const [authSession, setAuthSession] = useState<AuthenticatedSession | null>(() =>
-    loadFromStorage<AuthenticatedSession | null>(
-      STORAGE_KEYS.AUTH_SESSION,
-      DEFAULT_MASTER_ADMIN_SESSION
-    )
-  );
+  const [authSession, setAuthSession] = useState<AuthenticatedSession | null>(() => {
+    try {
+      localStorage.removeItem('jn_cbt_auth_session_v3');
+    } catch {
+      // ignore
+    }
+    return loadFromStorage<AuthenticatedSession | null>(STORAGE_KEYS.AUTH_SESSION, null);
+  });
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [selectedJenjang, setSelectedJenjang] = useState<JenjangFilter>('ALL');
   const [userRole, setUserRole] = useState<UserRole>(() => {

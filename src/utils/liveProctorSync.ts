@@ -168,6 +168,7 @@ export function subscribeLiveSyncEvents(
     window.addEventListener('storage', handleStorage);
     window.addEventListener(DOM_EVENT_NAME, handleDomEvent);
 
+    const pollIntervalMs = 7000 + Math.floor(Math.random() * 2000);
     pollTimer = setInterval(async () => {
       try {
         if (getSupabaseConfig()) {
@@ -184,7 +185,7 @@ export function subscribeLiveSyncEvents(
       } catch {
         // Ignore polling errors
       }
-    }, 4000);
+    }, pollIntervalMs);
   }
 
   return () => {

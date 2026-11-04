@@ -374,7 +374,10 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
         : `Menjawab ${answeredTotalCount}/${activePacket.questions.length} soal`,
     };
 
-    const delayMs = answeredTotalCount === 0 || violationCount > 0 || isLockedByAntiCheat ? 50 : 1200;
+    const delayMs =
+      answeredTotalCount === 0 || violationCount > 0 || isLockedByAntiCheat
+        ? 100
+        : 1800 + Math.floor(Math.random() * 600);
     const timer = setTimeout(() => {
       publishLiveSyncEvent({
         type: 'STUDENT_PROGRESS',

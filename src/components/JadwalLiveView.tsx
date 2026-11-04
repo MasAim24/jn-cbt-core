@@ -12,6 +12,7 @@ import { ScheduleCardGrid } from './jadwal/ScheduleCardGrid';
 import { LiveProctorTable } from './jadwal/LiveProctorTable';
 import { NewScheduleModal } from './jadwal/NewScheduleModal';
 import { publishLiveSyncEvent } from '../utils/liveProctorSync';
+import { AuthenticatedSession } from './auth/LoginPortalView';
 
 interface JadwalLiveViewProps {
   schedules: ExamSchedule[];
@@ -23,6 +24,7 @@ interface JadwalLiveViewProps {
   onRefreshToken: (scheduleId: string) => void;
   onOpenStudentSim: (packetId: string) => void;
   onResetStudentSubmission?: (studentId: string, packetId: string) => void;
+  authSession?: AuthenticatedSession | null;
 }
 
 export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
@@ -35,6 +37,7 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
   onRefreshToken,
   onOpenStudentSim,
   onResetStudentSubmission,
+  authSession,
 }) => {
   const [selectedScheduleId, setSelectedScheduleId] = useState<string>(schedules[0]?.id || '');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -254,19 +257,34 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {(['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[]).map((j) => (
-            <button
-              key={j}
-              onClick={() => onSelectJenjang(j)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                selectedJenjang === j
-                  ? 'bg-[#211955] text-white'
-                  : 'bg-surface text-text-muted hover:text-text-main border border-border-subtle'
-              }`}
-            >
-              {j === 'ALL' ? 'Semua' : JENJANG_META[j].shortLabel}
-            </button>
-          ))}
+          {authSession?.role === 'guru' &&
+          (authSession.allowedJenjangs?.length === 1 ||
+            (!authSession.allowedJenjangs && authSession.jenjang)) ? (
+            <span className="px-3.5 py-1.5 rounded-xl bg-[#211955] text-white text-xs font-extrabold">
+              Unit Tugas:{' '}
+              {
+                JENJANG_META[authSession.allowedJenjangs?.[0] || authSession.jenjang || 'MTs']
+                  .fullLabel
+              }
+            </span>
+          ) : (
+            (authSession?.role === 'guru' && authSession.allowedJenjangs?.length
+              ? (authSession.allowedJenjangs as JenjangFilter[])
+              : (['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[])
+            ).map((j) => (
+              <button
+                key={j}
+                onClick={() => onSelectJenjang(j)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  selectedJenjang === j
+                    ? 'bg-[#211955] text-white'
+                    : 'bg-surface text-text-muted hover:text-text-main border border-border-subtle'
+                }`}
+              >
+                {j === 'ALL' ? 'Semua' : JENJANG_META[j].shortLabel}
+              </button>
+            ))
+          )}
 
           <button
             onClick={() => setShowAddModal(true)}

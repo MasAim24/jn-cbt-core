@@ -36,6 +36,8 @@ export interface AuthenticatedSession {
   badgeRole: string;
   avatarInitials: string;
   jenjang?: Jenjang;
+  allowedJenjangs?: Jenjang[];
+  mapelAmpu?: string;
   studentId?: string;
   packetId?: string;
   peran?: TeacherPeran;
@@ -197,6 +199,8 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
       badgeRole: badgeRoleText,
       avatarInitials: getInitials(matchedTeacher.nama),
       jenjang: matchedTeacher.jenjangAmpu[0],
+      allowedJenjangs: matchedTeacher.jenjangAmpu,
+      mapelAmpu: matchedTeacher.mapelAmpu,
       peran: matchedTeacher.peran,
       kelasBinaan: matchedTeacher.kelasBinaan,
       allowedTabs,

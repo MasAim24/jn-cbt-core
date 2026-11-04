@@ -305,19 +305,34 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
 
       <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          {(['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[]).map((j) => (
-            <button
-              key={j}
-              onClick={() => onSelectJenjang(j)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                selectedJenjang === j
-                  ? 'bg-[#211955] text-white'
-                  : 'bg-elevated text-text-muted hover:text-text-main border border-border-subtle'
-              }`}
-            >
-              {j === 'ALL' ? 'Semua Jenjang' : JENJANG_META[j].shortLabel}
-            </button>
-          ))}
+          {authSession?.role === 'guru' &&
+          (authSession.allowedJenjangs?.length === 1 ||
+            (!authSession.allowedJenjangs && authSession.jenjang)) ? (
+            <span className="px-3.5 py-1.5 rounded-xl bg-[#211955] text-white text-xs font-extrabold">
+              Unit Tugas:{' '}
+              {
+                JENJANG_META[authSession.allowedJenjangs?.[0] || authSession.jenjang || 'MTs']
+                  .fullLabel
+              }
+            </span>
+          ) : (
+            (authSession?.role === 'guru' && authSession.allowedJenjangs?.length
+              ? (authSession.allowedJenjangs as JenjangFilter[])
+              : (['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[])
+            ).map((j) => (
+              <button
+                key={j}
+                onClick={() => onSelectJenjang(j)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  selectedJenjang === j
+                    ? 'bg-[#211955] text-white'
+                    : 'bg-elevated text-text-muted hover:text-text-main border border-border-subtle'
+                }`}
+              >
+                {j === 'ALL' ? 'Semua Jenjang' : JENJANG_META[j].shortLabel}
+              </button>
+            ))
+          )}
 
           <span className="text-border-subtle">|</span>
 

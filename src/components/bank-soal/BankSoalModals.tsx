@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Download, FileSpreadsheet, FileJson, Upload, X } from 'lucide-react';
 import { ExamPacket, Jenjang, Question, QuestionType } from '../../types/cbt';
 import { JENJANG_META } from '../../data/initialData';
@@ -7,33 +7,79 @@ interface NewPacketModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreatePacket: (packet: ExamPacket) => void;
+  allowedJenjangs?: Jenjang[];
+  defaultJenjang?: Jenjang;
+  defaultMapel?: string;
+  defaultGuruNama?: string;
 }
+
+const ALL_JENJANG_OPTIONS: { value: Jenjang; label: string }[] = [
+  { value: 'MTs', label: 'Madrasah Tsanawiyah (MTs)' },
+  { value: 'MA', label: 'Madrasah Aliyah (MA)' },
+  { value: 'Wustho', label: 'PDF / Diniyah Wustho' },
+  { value: 'Ulya', label: "PDF / Diniyah 'Ulya" },
+];
 
 export const NewPacketModal: React.FC<NewPacketModalProps> = ({
   isOpen,
   onClose,
   onCreatePacket,
+  allowedJenjangs,
+  defaultJenjang,
+  defaultMapel,
+  defaultGuruNama,
 }) => {
+  const effectiveJenjangs =
+    allowedJenjangs && allowedJenjangs.length > 0
+      ? ALL_JENJANG_OPTIONS.filter((opt) => allowedJenjangs.includes(opt.value))
+      : ALL_JENJANG_OPTIONS;
+
+  const initialJenjang: Jenjang =
+    defaultJenjang && effectiveJenjangs.some((o) => o.value === defaultJenjang)
+      ? defaultJenjang
+      : effectiveJenjangs[0]?.value || 'MTs';
+
   const [newTitle, setNewTitle] = useState('');
-  const [newMapel, setNewMapel] = useState('');
-  const [newJenjang, setNewJenjang] = useState<Jenjang>('MTs');
+  const [newMapel, setNewMapel] = useState(defaultMapel || '');
+  const [newJenjang, setNewJenjang] = useState<Jenjang>(initialJenjang);
   const [newKelas, setNewKelas] = useState('VIII-A');
-  const [newGuru, setNewGuru] = useState('Ust. H. Mahfudz Siddiq, S.Pd.I');
-  const [newOptionCount, setNewOptionCount] = useState<4 | 5>(4);
+  const [newGuru, setNewGuru] = useState(defaultGuruNama || 'Tim Kurikulum / Guru Mapel');
+  const [newOptionCount, setNewOptionCount] = useState<4 | 5>(
+    JENJANG_META[initialJenjang].defaultOptions
+  );
   const [newKkm, setNewKkm] = useState(75);
   const [newHasArabic, setNewHasArabic] = useState(true);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const nextJ: Jenjang =
+      defaultJenjang && effectiveJenjangs.some((o) => o.value === defaultJenjang)
+        ? defaultJenjang
+        : effectiveJenjangs[0]?.value || 'MTs';
+    setNewJenjang(nextJ);
+    setNewOptionCount(JENJANG_META[nextJ].defaultOptions);
+    if (defaultMapel) setNewMapel(defaultMapel);
+    if (defaultGuruNama) setNewGuru(defaultGuruNama);
+    if (nextJ === 'MA') setNewKelas('X / XI / XII MA');
+    else if (nextJ === 'MTs') setNewKelas('VII / VIII / IX MTs');
+    else if (nextJ === 'Wustho') setNewKelas('Marhalah Wustho');
+    else if (nextJ === 'Ulya') setNewKelas("Marhalah 'Ulya");
+  }, [isOpen, defaultJenjang, defaultMapel, defaultGuruNama]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || !newMapel.trim()) return;
+    const lockedJenjang = effectiveJenjangs.some((o) => o.value === newJenjang)
+      ? newJenjang
+      : effectiveJenjangs[0]?.value || 'MTs';
     const created: ExamPacket = {
       id: `pkt-${Date.now()}`,
-      code: `CBT-${newJenjang.toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
+      code: `CBT-${lockedJenjang.toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
       title: newTitle.trim(),
       mapel: newMapel.trim(),
-      jenjang: newJenjang,
+      jenjang: lockedJenjang,
       kelas: newKelas.trim(),
       guruNama: newGuru.trim(),
       optionCount: newOptionCount,
@@ -44,7 +90,7 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
     };
     onCreatePacket(created);
     setNewTitle('');
-    setNewMapel('');
+    if (!defaultMapel) setNewMapel('');
     onClose();
   };
 
@@ -69,27 +115,31 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
               required
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Contoh: Imtihan Akhir Semester — Fiqih Fathul Qarib"
+              placeholder="Contoh: Penilaian Akhir Semester — Informatika / TIK"
               className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main focus:outline-none focus:border-[#211955]"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-bold text-text-main block mb-1">Jenjang</label>
+              <label className="font-bold text-text-main block mb-1">
+                Jenjang Unit {effectiveJenjangs.length === 1 ? '(Terkunci Sesuai SK)' : ''}
+              </label>
               <select
                 value={newJenjang}
+                disabled={effectiveJenjangs.length === 1}
                 onChange={(e) => {
                   const j = e.target.value as Jenjang;
                   setNewJenjang(j);
                   setNewOptionCount(JENJANG_META[j].defaultOptions);
                 }}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main font-bold disabled:opacity-80"
               >
-                <option value="MTs">Madrasah Tsanawiyah (MTs)</option>
-                <option value="MA">Madrasah Aliyah (MA)</option>
-                <option value="Wustho">PDF / Diniyah Wustho</option>
-                <option value="Ulya">PDF / Diniyah &apos;Ulya</option>
+                {effectiveJenjangs.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import {
   ExamPacket,
+  Jenjang,
   JenjangFilter,
   Question,
   QuestionType,
@@ -55,12 +56,22 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [bulkText, setBulkText] = useState('');
 
-  const filteredPackets = packets.filter((p) =>
-    selectedJenjang === 'ALL' ? true : p.jenjang === selectedJenjang
-  );
+  const isGuruLocked = authSession?.role === 'guru';
+  const allowedJenjangs: Jenjang[] = isGuruLocked
+    ? authSession?.allowedJenjangs && authSession.allowedJenjangs.length > 0
+      ? authSession.allowedJenjangs
+      : authSession?.jenjang
+      ? [authSession.jenjang]
+      : ['MTs', 'MA', 'Wustho', 'Ulya']
+    : ['MTs', 'MA', 'Wustho', 'Ulya'];
+
+  const filteredPackets = packets.filter((p) => {
+    if (!allowedJenjangs.includes(p.jenjang)) return false;
+    return selectedJenjang === 'ALL' ? true : p.jenjang === selectedJenjang;
+  });
 
   const activePacket =
-    filteredPackets.find((p) => p.id === activePacketId) || filteredPackets[0] || packets[0];
+    filteredPackets.find((p) => p.id === activePacketId) || filteredPackets[0];
 
   const displayedQuestions = (activePacket?.questions || []).filter((q) => {
     const matchType = questionTypeFilter === 'ALL' ? true : q.type === questionTypeFilter;
@@ -147,19 +158,35 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {(['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[]).map((j) => (
-            <button
-              key={j}
-              onClick={() => onSelectJenjang(j)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                selectedJenjang === j
-                  ? 'bg-[#211955] text-white shadow-sm'
-                  : 'bg-surface text-text-muted hover:text-text-main border border-border-subtle'
-              }`}
+          {isGuruLocked && allowedJenjangs.length === 1 ? (
+            <span
+              className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap border"
+              style={{
+                backgroundColor: JENJANG_META[allowedJenjangs[0]].badgeBg,
+                color: JENJANG_META[allowedJenjangs[0]].badgeText,
+                borderColor: JENJANG_META[allowedJenjangs[0]].accentHex,
+              }}
             >
-              {j === 'ALL' ? 'Semua' : JENJANG_META[j].shortLabel}
-            </button>
-          ))}
+              Unit Tugas: {JENJANG_META[allowedJenjangs[0]].fullLabel}
+            </span>
+          ) : (
+            (isGuruLocked
+              ? (allowedJenjangs as JenjangFilter[])
+              : (['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[])
+            ).map((j) => (
+              <button
+                key={j}
+                onClick={() => onSelectJenjang(j)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition ${
+                  selectedJenjang === j
+                    ? 'bg-[#211955] text-white shadow-sm'
+                    : 'bg-surface text-text-muted hover:text-text-main border border-border-subtle'
+                }`}
+              >
+                {j === 'ALL' ? 'Semua' : JENJANG_META[j].shortLabel}
+              </button>
+            ))
+          )}
 
           <button
             onClick={() => setShowNewPacketModal(true)}
@@ -409,6 +436,14 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
       <NewPacketModal
         isOpen={showNewPacketModal}
         onClose={() => setShowNewPacketModal(false)}
+        allowedJenjangs={allowedJenjangs}
+        defaultJenjang={
+          selectedJenjang !== 'ALL' && allowedJenjangs.includes(selectedJenjang)
+            ? selectedJenjang
+            : allowedJenjangs[0]
+        }
+        defaultMapel={authSession?.mapelAmpu}
+        defaultGuruNama={authSession?.role === 'guru' ? authSession.name : undefined}
         onCreatePacket={(created) => {
           const finalPacket =
             authSession?.role === 'guru' && authSession.name

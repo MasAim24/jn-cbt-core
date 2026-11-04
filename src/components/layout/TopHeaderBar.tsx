@@ -56,6 +56,14 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   const [passSavedMsg, setPassSavedMsg] = useState(false);
 
   const isMasterAdmin = !authSession || authSession.role === 'admin';
+  const isGuruLocked = authSession?.role === 'guru';
+  const allowedJenjangs = isGuruLocked
+    ? authSession?.allowedJenjangs && authSession.allowedJenjangs.length > 0
+      ? authSession.allowedJenjangs
+      : authSession?.jenjang
+      ? [authSession.jenjang]
+      : ['MTs', 'MA', 'Wustho', 'Ulya']
+    : ['MTs', 'MA', 'Wustho', 'Ulya'];
 
   const searchResults =
     searchQuery.trim().length > 1
@@ -148,19 +156,28 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
       <div className="flex items-center justify-between md:justify-end gap-3 flex-wrap">
         {/* Quick Switcher 4 Jenjang */}
         <div className="hidden xl:flex items-center gap-1 bg-elevated p-1 rounded-2xl border border-border-subtle/60 shadow-card text-xs">
-          {(['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[]).map((j) => (
-            <button
-              key={j}
-              onClick={() => onSelectJenjang(j)}
-              className={`px-3 py-1.5 rounded-xl font-extrabold whitespace-nowrap transition ${
-                selectedJenjang === j
-                  ? 'bg-[#211955] text-white'
-                  : 'text-text-muted hover:text-text-main'
-              }`}
-            >
-              {j === 'ALL' ? 'Semua Jenjang' : JENJANG_META[j].shortLabel}
-            </button>
-          ))}
+          {isGuruLocked && allowedJenjangs.length === 1 ? (
+            <span className="px-3.5 py-1.5 rounded-xl bg-[#211955] text-white font-extrabold whitespace-nowrap">
+              Unit Tugas: {JENJANG_META[allowedJenjangs[0]].fullLabel}
+            </span>
+          ) : (
+            (isGuruLocked
+              ? (allowedJenjangs as JenjangFilter[])
+              : (['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[])
+            ).map((j) => (
+              <button
+                key={j}
+                onClick={() => onSelectJenjang(j)}
+                className={`px-3 py-1.5 rounded-xl font-extrabold whitespace-nowrap transition ${
+                  selectedJenjang === j
+                    ? 'bg-[#211955] text-white'
+                    : 'text-text-muted hover:text-text-main'
+                }`}
+              >
+                {j === 'ALL' ? 'Semua Jenjang' : JENJANG_META[j].shortLabel}
+              </button>
+            ))
+          )}
         </div>
 
         {/* Light / Dark Mode Toggle */}

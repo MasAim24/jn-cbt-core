@@ -286,7 +286,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-          {jenjangCards.map((card) => {
+          {jenjangCards
+            .filter((card) =>
+              authSession?.role === 'guru' && authSession.allowedJenjangs?.length
+                ? authSession.allowedJenjangs.includes(card.jenjang)
+                : authSession?.role === 'guru' && authSession.jenjang
+                ? card.jenjang === authSession.jenjang
+                : true
+            )
+            .map((card) => {
             const isSelected = selectedJenjang === card.jenjang;
             const pct = Math.min(100, Math.round((card.totalCount / card.maxCap) * 100));
             const packetForJenjang = packets.find((p) => p.jenjang === card.jenjang);

@@ -709,6 +709,68 @@ export function App() {
     );
   }
 
+  const liveTeacherRecord =
+    authSession.role === 'guru' ? teachers.find((t) => t.id === authSession.id) : undefined;
+  const effectiveAuthSession: AuthenticatedSession =
+    authSession.role === 'guru'
+      ? {
+          ...authSession,
+          jenjang: liveTeacherRecord?.jenjangAmpu[0] || authSession.jenjang || 'MTs',
+          allowedJenjangs:
+            liveTeacherRecord?.jenjangAmpu && liveTeacherRecord.jenjangAmpu.length > 0
+              ? liveTeacherRecord.jenjangAmpu
+              : authSession.allowedJenjangs && authSession.allowedJenjangs.length > 0
+              ? authSession.allowedJenjangs
+              : authSession.jenjang
+              ? [authSession.jenjang]
+              : ['MTs'],
+          mapelAmpu: liveTeacherRecord?.mapelAmpu || authSession.mapelAmpu,
+        }
+      : authSession;
+
+  const teacherAllowedJenjangs =
+    effectiveAuthSession.role === 'guru' ? effectiveAuthSession.allowedJenjangs : undefined;
+
+  const scopedPackets =
+    teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0
+      ? packets.filter((p) => teacherAllowedJenjangs.includes(p.jenjang))
+      : packets;
+  const scopedSchedules =
+    teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0
+      ? schedules.filter((s) => teacherAllowedJenjangs.includes(s.jenjang))
+      : schedules;
+  const scopedStudents =
+    teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0
+      ? students.filter((s) => teacherAllowedJenjangs.includes(s.jenjang))
+      : students;
+  const scopedSubmissions =
+    teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0
+      ? submissions.filter((s) => teacherAllowedJenjangs.includes(s.jenjang))
+      : submissions;
+
+  const effectiveSelectedJenjang: JenjangFilter =
+    teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0
+      ? teacherAllowedJenjangs.length === 1
+        ? teacherAllowedJenjangs[0]
+        : selectedJenjang === 'ALL' || teacherAllowedJenjangs.includes(selectedJenjang as any)
+        ? selectedJenjang
+        : teacherAllowedJenjangs[0]
+      : selectedJenjang;
+
+  const handleSelectJenjang = (next: JenjangFilter) => {
+    if (teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0) {
+      if (teacherAllowedJenjangs.length === 1) {
+        setSelectedJenjang(teacherAllowedJenjangs[0]);
+        return;
+      }
+      if (next !== 'ALL' && !teacherAllowedJenjangs.includes(next)) {
+        setSelectedJenjang(teacherAllowedJenjangs[0]);
+        return;
+      }
+    }
+    setSelectedJenjang(next);
+  };
+
   return (
     <div
       className="relative min-h-screen w-full p-2 sm:p-4 lg:p-6 transition-colors duration-300"
@@ -731,7 +793,7 @@ export function App() {
         <FloatingSidebar
           activeTab={activeTab}
           userRole={userRole}
-          allowedTabs={authSession.allowedTabs}
+          allowedTabs={effectiveAuthSession.allowedTabs}
           onSelectTab={setActiveTab}
           onSetUserRole={setUserRole}
           onOpenStudentSim={() => handleOpenStudentSim()}
@@ -742,16 +804,16 @@ export function App() {
         {/* Inner Content Surface Canvas (#F6F8FC in light mode) */}
         <div className="flex-1 min-w-0 rounded-[28px] bg-surface p-4 sm:p-6 lg:p-7 flex flex-col justify-between space-y-6">
           <TopHeaderBar
-            packets={packets}
-            students={students}
-            selectedJenjang={selectedJenjang}
-            onSelectJenjang={setSelectedJenjang}
+            packets={scopedPackets}
+            students={scopedStudents}
+            selectedJenjang={effectiveSelectedJenjang}
+            onSelectJenjang={handleSelectJenjang}
             onNavigateTab={setActiveTab}
             userRole={userRole}
             onSetUserRole={setUserRole}
             darkMode={darkMode}
             onToggleDarkMode={() => setDarkMode((d) => !d)}
-            authSession={authSession}
+            authSession={effectiveAuthSession}
             onChangeSelfPassword={handleChangeSelfPassword}
             onLogout={handleLogout}
           />
@@ -767,10 +829,10 @@ export function App() {
                 initialPacketId={studentSimPacketId}
                 initialStudentId={studentSimStudentId}
                 onExitPortal={() => {
-                  if (authSession.role === 'siswa') {
+                  if (effectiveAuthSession.role === 'siswa') {
                     handleLogout();
                   } else {
-                    setUserRole(authSession.role);
+                    setUserRole(effectiveAuthSession.role);
                     setActiveTab('rekap-nilai');
                   }
                 }}
@@ -780,53 +842,54 @@ export function App() {
               <>
                 {activeTab === 'dashboard' && (
                   <DashboardView
-                    selectedJenjang={selectedJenjang}
-                    onSelectJenjang={setSelectedJenjang}
+                    selectedJenjang={effectiveSelectedJenjang}
+                    onSelectJenjang={handleSelectJenjang}
                     onNavigate={setActiveTab}
                     onOpenStudentSim={handleOpenStudentSim}
-                    packets={packets}
-                    schedules={schedules}
-                    students={students}
-                    submissions={submissions}
+                    packets={scopedPackets}
+                    schedules={scopedSchedules}
+                    students={scopedStudents}
+                    submissions={scopedSubmissions}
                     onRefreshToken={handleRefreshToken}
-                    authSession={authSession}
+                    authSession={effectiveAuthSession}
                   />
                 )}
 
                 {activeTab === 'bank-soal' && (
                   <BankSoalView
-                    packets={packets}
+                    packets={scopedPackets}
                     settings={currentSettings}
-                    selectedJenjang={selectedJenjang}
-                    onSelectJenjang={setSelectedJenjang}
+                    selectedJenjang={effectiveSelectedJenjang}
+                    onSelectJenjang={handleSelectJenjang}
                     onSavePacket={handleSavePacket}
                     onDeletePacket={handleDeletePacket}
                     onOpenStudentSim={handleOpenStudentSim}
-                    authSession={authSession}
+                    authSession={effectiveAuthSession}
                   />
                 )}
 
                 {activeTab === 'jadwal-live' && (
                   <JadwalLiveView
-                    schedules={schedules}
-                    packets={packets}
-                    selectedJenjang={selectedJenjang}
-                    onSelectJenjang={setSelectedJenjang}
+                    schedules={scopedSchedules}
+                    packets={scopedPackets}
+                    selectedJenjang={effectiveSelectedJenjang}
+                    onSelectJenjang={handleSelectJenjang}
                     onSaveSchedule={handleSaveSchedule}
                     onDeleteSchedule={handleDeleteSchedule}
                     onRefreshToken={handleRefreshToken}
                     onOpenStudentSim={handleOpenStudentSim}
                     onResetStudentSubmission={handleResetStudentSubmission}
+                    authSession={effectiveAuthSession}
                   />
                 )}
 
                 {activeTab === 'peserta-kartu' && (
                   <DataPesertaKartuView
-                    students={students}
+                    students={scopedStudents}
                     teachers={teachers}
                     settings={currentSettings}
-                    selectedJenjang={selectedJenjang}
-                    onSelectJenjang={setSelectedJenjang}
+                    selectedJenjang={effectiveSelectedJenjang}
+                    onSelectJenjang={handleSelectJenjang}
                     onSaveStudent={handleSaveStudent}
                     onBulkSaveStudents={handleBulkSaveStudents}
                     onRegenerateAllPins={handleRegenerateAllPins}
@@ -834,20 +897,20 @@ export function App() {
                     onSaveTeacher={handleSaveTeacher}
                     onDeleteTeacher={handleDeleteTeacher}
                     onSaveSettings={(next) => setSettings([next])}
-                    authSession={authSession}
+                    authSession={effectiveAuthSession}
                   />
                 )}
 
                 {activeTab === 'rekap-nilai' && (
                   <RekapNilaiView
-                    submissions={submissions}
-                    packets={packets}
+                    submissions={scopedSubmissions}
+                    packets={scopedPackets}
                     settings={currentSettings}
-                    selectedJenjang={selectedJenjang}
-                    onSelectJenjang={setSelectedJenjang}
+                    selectedJenjang={effectiveSelectedJenjang}
+                    onSelectJenjang={handleSelectJenjang}
                     onUpdateSubmission={handleUpdateSubmission}
                     onResetSubmission={handleResetSubmissionRecord}
-                    authSession={authSession}
+                    authSession={effectiveAuthSession}
                   />
                 )}
 

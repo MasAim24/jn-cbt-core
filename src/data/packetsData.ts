@@ -1,4 +1,5 @@
 import { ExamPacket } from '../types/cbt';
+import { DIAGRAM_PRESETS } from '../utils/questionMediaHelper';
 
 export const INITIAL_PACKETS: ExamPacket[] = [
   {
@@ -8,7 +9,7 @@ export const INITIAL_PACKETS: ExamPacket[] = [
     mapel: 'Fiqih MTs',
     jenjang: 'MTs',
     kelas: 'VIII (Delapan)',
-    guruNama: 'Ust. H. Mahfudz Siddiq, S.Pd.I',
+    guruNama: 'Tim Kurikulum / Guru Mapel MTs',
     optionCount: 4,
     kkm: 75,
     hasArabicKitab: true,
@@ -19,10 +20,13 @@ export const INITIAL_PACKETS: ExamPacket[] = [
         nomor: 1,
         type: 'PG',
         prompt:
-          'Perhatikan lafaz niat sujud syukur di atas. Hukum melaksanakan sujud syukur ketika seorang muslim mendapatkan nikmat besar atau selamat dari musibah adalah...',
+          'Perhatikan lafaz niat sujud syukur dan bagan klasifikasi hukum ibadah di atas. Hukum melaksanakan sujud syukur ketika seorang muslim mendapatkan nikmat besar atau selamat dari musibah adalah...',
         arabicPrompt: 'نَوَيْتُ سُجُوْدَ الشُّكْرِ سُنَّةً لِلّٰهِ تَعَالَى',
         kitabReference: 'Fiqih MTs Kelas VIII — Bab Sujud Syukur & Tilawah',
         isRtl: true,
+        mediaImageUrl: DIAGRAM_PRESETS[1]?.dataUrl,
+        mediaAudioUrl: 'SYNTH_ISTIMA_QIRAAH',
+        mediaCaption: 'Lampiran Visual & Audio Istima’: Klasifikasi Hukum Thaharah & Ibadah Syafi’iyyah',
         options: [
           { label: 'A', text: 'Fardhu Ain bagi setiap muslim yang mukallaf' },
           {
@@ -104,7 +108,7 @@ export const INITIAL_PACKETS: ExamPacket[] = [
     mapel: 'Ushul Fiqih MA',
     jenjang: 'MA',
     kelas: 'XII Keagamaan',
-    guruNama: 'KH. Dr. Lukman Hakim, M.Ag.',
+    guruNama: 'Tim Kurikulum / Guru Mapel MA',
     optionCount: 5,
     kkm: 78,
     hasArabicKitab: true,
@@ -216,7 +220,7 @@ export const INITIAL_PACKETS: ExamPacket[] = [
     mapel: 'Nahwu & Shorof (Wustho)',
     jenjang: 'Wustho',
     kelas: 'Marhalah II Wustho',
-    guruNama: 'Ust. Muhammad Zidni Ilman, Lc.',
+    guruNama: 'Tim Kurikulum / Pengampu Kitab Wustho',
     optionCount: 4,
     kkm: 70,
     hasArabicKitab: true,
@@ -327,7 +331,7 @@ export const INITIAL_PACKETS: ExamPacket[] = [
     mapel: "Alfiyah & Bahtsul Masail ('Ulya)",
     jenjang: 'Ulya',
     kelas: "Marhalah III 'Ulya",
-    guruNama: 'Syaikhina KH. Bahauddin Nursalim',
+    guruNama: "Tim Kurikulum / Pengampu Kitab 'Ulya",
     optionCount: 5,
     kkm: 80,
     hasArabicKitab: true,

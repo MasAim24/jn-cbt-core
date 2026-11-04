@@ -272,10 +272,10 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                       setShowBulkImportModal(true);
                     }}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-[#B85D19] text-xs font-extrabold whitespace-nowrap transition"
-                    title="Import Soal Cepat via Copy-Paste"
+                    title="Import & Export Kolektif Bank Soal (CSV / JSON / Copy-Paste)"
                   >
                     <FileUp className="w-3.5 h-3.5 shrink-0" />
-                    <span>Import Cepat</span>
+                    <span>Import / Export (CSV/JSON)</span>
                   </button>
                   <button
                     onClick={() => {

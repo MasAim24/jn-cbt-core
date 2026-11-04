@@ -199,12 +199,18 @@ export const MotionGraphicsShowcaseModal: React.FC<MotionGraphicsShowcaseModalPr
     playingRef.current = true;
 
     const stream = canvas.captureStream(60);
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-      ? 'video/webm;codecs=vp9'
-      : 'video/webm';
+    const preferredTypes = [
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4',
+      'video/webm;codecs=vp9',
+      'video/webm',
+    ];
+    const mimeType =
+      preferredTypes.find((t) => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
     const recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: 8_000_000,
+      videoBitsPerSecond: 16_000_000,
     });
 
     recorder.ondataavailable = (e) => {
@@ -222,7 +228,7 @@ export const MotionGraphicsShowcaseModal: React.FC<MotionGraphicsShowcaseModalPr
       // Auto-trigger download
       const a = document.createElement('a');
       a.href = url;
-      a.download = `JN-ExamCBTCore-MotionGraphics-${Date.now()}.webm`;
+      a.download = `JN-ExamCBTCore-1080p-60fps-${Date.now()}.${ext}`;
       a.click();
     };
 
@@ -269,14 +275,24 @@ export const MotionGraphicsShowcaseModal: React.FC<MotionGraphicsShowcaseModalPr
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/JN-ExamCBTCore-Showcase-1080p-60fps.mp4"
+              download="JN-ExamCBTCore-Showcase-1080p-60fps.mp4"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F8B478] hover:bg-[#f5a45d] text-[#1E1645] text-xs font-extrabold transition shadow-md"
+              title="Unduh langsung file video murni MP4 H.264 1920x1080 60.00 FPS Constant Frame Rate"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download Video Murni MP4 (1080p • 60 FPS)</span>
+            </a>
+
             {!isRecording ? (
               <button
                 onClick={handleStartRecording}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#14B894] hover:bg-[#0ea583] text-white text-xs font-extrabold transition shadow-md"
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#14B894] hover:bg-[#0ea583] text-white text-xs font-extrabold transition shadow-md"
               >
                 <Video className="w-4 h-4" />
-                <span>Rekam &amp; Download VideoFull (.webm 1080p)</span>
+                <span>Rekam Ulang Live (1080p60)</span>
               </button>
             ) : (
               <button
@@ -290,11 +306,11 @@ export const MotionGraphicsShowcaseModal: React.FC<MotionGraphicsShowcaseModalPr
             {recordedUrl && (
               <a
                 href={recordedUrl}
-                download="JN-ExamCBTCore-Showcase.webm"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F8B478] text-[#1E1645] text-xs font-extrabold"
+                download="JN-ExamCBTCore-Showcase-Live.webm"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-extrabold"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Unduh Ulang</span>
+                <span>Unduh Hasil Rekam</span>
               </a>
             )}
 

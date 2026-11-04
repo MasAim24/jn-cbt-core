@@ -2,7 +2,9 @@ import React from 'react';
 import {
   CheckCircle2,
   Clock,
+  ExternalLink,
   Megaphone,
+  Radio,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -55,16 +57,36 @@ export const LiveProctorTable: React.FC<LiveProctorTableProps> = ({
       />
       <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-extrabold text-text-main flex items-center gap-2 leading-snug">
-            <ShieldCheck className="w-5 h-5 text-[#14B894] shrink-0" />
-            <span>Monitor Ruang Pengawas: {activeSchedule.packetTitle}</span>
-          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-extrabold text-text-main flex items-center gap-2 leading-snug">
+              <ShieldCheck className="w-5 h-5 text-[#14B894] shrink-0" />
+              <span>Monitor Ruang Pengawas: {activeSchedule.packetTitle}</span>
+            </h2>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-teal-50 text-[#087963] text-[10px] font-extrabold">
+              <Radio className="w-3 h-3 text-[#14B894] animate-pulse" />
+              <span>BroadcastChannel Sync Aktif</span>
+            </span>
+          </div>
           <p className="text-xs text-text-muted mt-1 leading-relaxed">
-            Kendalikan sesi santri secara real-time: kirim pengumuman ke layar siswa, reset
-            kunci tab, tambah waktu, atau paksa selesai.
+            Kendalikan sesi santri secara real-time lintas tab: kirim pengumuman ke layar siswa,
+            reset kunci tab, tambah waktu +15m, atau paksa selesai.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs font-bold shrink-0">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-bold shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.set('sim_student', '1');
+              url.searchParams.set('packetId', activeSchedule.packetId);
+              window.open(url.toString(), '_blank');
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#087963] border border-[#14B894]/40 font-extrabold whitespace-nowrap transition"
+            title="Buka tab browser baru sebagai Santri untuk menguji sinkronisasi real-time antar-tab"
+          >
+            <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+            <span>Buka Tab Santri (Dual-Tab Live)</span>
+          </button>
           <span className="px-3.5 py-1.5 rounded-xl bg-[#211955] text-white font-mono whitespace-nowrap">
             TOKEN AKTIF: {activeSchedule.token}
           </span>

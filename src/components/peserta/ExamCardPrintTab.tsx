@@ -1,20 +1,48 @@
 import React from 'react';
-import { QrCode } from 'lucide-react';
+import { FileDown, Printer, QrCode } from 'lucide-react';
 import { JenjangFilter, SchoolSettings, Student } from '../../types/cbt';
 import { JENJANG_META } from '../../data/initialData';
 
 interface ExamCardPrintTabProps {
   students: Student[];
   settings: SchoolSettings;
+  onOpenPdfKartu?: () => void;
 }
 
 export const ExamCardPrintTab: React.FC<ExamCardPrintTabProps> = ({
   students,
   settings,
+  onOpenPdfKartu,
 }) => {
   return (
-    <div className="rounded-[26px] bg-white text-slate-900 p-6 shadow-card border border-border-subtle/60">
+    <div className="rounded-[26px] bg-white text-slate-900 p-6 shadow-card border border-border-subtle/60 space-y-5">
+      {onOpenPdfKartu && (
+        <div className="no-print flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-indigo-50/80 border border-indigo-200">
+          <div>
+            <div className="text-xs font-extrabold text-[#211955]">
+              Siap Cetak Kartu Peserta Ber-QR Code ({students.length} Santri • 6 Kartu / Halaman A4)
+            </div>
+            <div className="text-[11px] text-slate-600">
+              Gunakan tombol di kanan untuk mengunduh file PDF murni (.pdf) atau mencetak langsung ke kertas A4.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenPdfKartu}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold shadow-sm transition"
+          >
+            <FileDown className="w-4 h-4 text-[#F8B478]" />
+            <span>Pratinjau &amp; Download PDF Kartu A4</span>
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {students.length === 0 && (
+          <div className="col-span-full py-10 text-center text-xs text-slate-500 border border-dashed border-slate-300 rounded-2xl">
+            Belum ada data peserta ujian yang diinput. Tambahkan data santri real terlebih dahulu
+            pada tab <strong>Data Santri</strong> untuk mencetak Kartu Peserta.
+          </div>
+        )}
         {students.map((s) => {
           const meta = JENJANG_META[s.jenjang];
           return (
@@ -156,6 +184,13 @@ export const AttendancePrintTab: React.FC<AttendancePrintTabProps> = ({
           </tr>
         </thead>
         <tbody>
+          {students.length === 0 && (
+            <tr>
+              <td colSpan={7} className="border border-slate-800 py-8 text-center text-slate-500">
+                Belum ada data peserta ujian yang diinput pada jenjang ini.
+              </td>
+            </tr>
+          )}
           {students.map((s, idx) => (
             <tr key={s.id}>
               <td className="border border-slate-800 py-2.5 px-3 text-center font-bold">

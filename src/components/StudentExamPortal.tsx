@@ -1,15 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Clock,
   LogOut,
   Maximize2,
   Megaphone,
+  Radio,
+  ShieldAlert,
+  Unlock,
 } from 'lucide-react';
 import {
   ExamPacket,
   ExamSchedule,
   ExamSubmission,
+  LiveParticipant,
   Question,
+  SchoolSettings,
   Student,
 } from '../types/cbt';
 import { PortalLobbyScreen } from './student-portal/PortalLobbyScreen';
@@ -19,11 +24,16 @@ import {
   ConfirmSubmitModal,
   QuestionMatrixSidebar,
 } from './student-portal/QuestionMatrixSidebar';
+import {
+  publishLiveSyncEvent,
+  subscribeLiveSyncEvents,
+} from '../utils/liveProctorSync';
 
 interface StudentExamPortalProps {
   packets: ExamPacket[];
   schedules: ExamSchedule[];
   students: Student[];
+  settings?: SchoolSettings;
   initialPacketId?: string;
   initialStudentId?: string;
   onExitPortal: () => void;
@@ -34,6 +44,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   packets,
   schedules,
   students,
+  settings,
   initialPacketId,
   initialStudentId,
   onExitPortal,
@@ -46,6 +57,9 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [showConfirmSubmitModal, setShowConfirmSubmitModal] = useState<boolean>(false);
   const [violationCount, setViolationCount] = useState<number>(0);
+  const [proctorToast, setProctorToast] = useState<string | null>(null);
+  const [liveAnnouncement, setLiveAnnouncement] = useState<string | undefined>(undefined);
+  const forceSubmitRef = useRef<(() => void) | null>(null);
 
   const activePacket = packets.find((p) => p.id === selectedPacketId) || packets[0];
   const matchingSchedule =
@@ -54,6 +68,10 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     (initialStudentId && students.find((s) => s.id === initialStudentId)) ||
     students.find((s) => s.jenjang === activePacket?.jenjang) ||
     students[0];
+
+  const maxViolationsAllowed = settings?.maxViolationsAllowed || 3;
+  const isLockedByAntiCheat =
+    settings?.antiCheatBlockTabSwitch !== false && violationCount >= maxViolationsAllowed;
 
   const [tokenInput, setTokenInput] = useState<string>(
     matchingSchedule?.token || 'JN849K'
@@ -78,8 +96,9 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     if (matchingSchedule) {
       setTokenInput(matchingSchedule.token);
       setSecondsLeft(matchingSchedule.durasiMenit * 60);
+      setLiveAnnouncement(matchingSchedule.announcement);
     }
-  }, [selectedPacketId]);
+  }, [selectedPacketId, matchingSchedule?.announcement]);
 
   useEffect(() => {
     if (!hasStarted || isSubmitted) return;
@@ -100,6 +119,42 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [hasStarted, isSubmitted]);
+
+  // Subscribe to real-time Proctor commands & announcements via BroadcastChannel
+  useEffect(() => {
+    return subscribeLiveSyncEvents((msg) => {
+      if (
+        msg.type === 'PROCTOR_BROADCAST' &&
+        (msg.scheduleId === matchingSchedule?.id || msg.packetId === activePacket?.id)
+      ) {
+        setLiveAnnouncement(msg.announcement);
+        if (msg.announcement) {
+          setProctorToast(`Siaran Pengawas Baru: "${msg.announcement}"`);
+          setTimeout(() => setProctorToast(null), 5000);
+        }
+      } else if (msg.type === 'PROCTOR_ACTION') {
+        const isTargetStudent =
+          msg.studentId === matchingStudent?.id ||
+          msg.nomorPeserta === matchingStudent?.nomorPeserta ||
+          msg.scheduleId === matchingSchedule?.id;
+        if (!isTargetStudent) return;
+
+        if (msg.action === 'RESET_LOGIN') {
+          setViolationCount(0);
+          setProctorToast('Pengawas Ruang telah membuka kunci sesi ujian Anda!');
+          setTimeout(() => setProctorToast(null), 4500);
+        } else if (msg.action === 'ADD_TIME') {
+          const bonusSecs = (msg.addedMinutes || 15) * 60;
+          setSecondsLeft((prev) => prev + bonusSecs);
+          setProctorToast('Pengawas Ruang menambahkan waktu +15 Menit pada sesi ujian Anda!');
+          setTimeout(() => setProctorToast(null), 4500);
+        } else if (msg.action === 'FORCE_SUBMIT') {
+          setProctorToast('Pengawas Ruang menginstruksikan pengumpulan jawaban sekarang.');
+          forceSubmitRef.current?.();
+        }
+      }
+    });
+  }, [matchingSchedule?.id, activePacket?.id, matchingStudent?.id, matchingStudent?.nomorPeserta]);
 
   // Keyboard Left/Right navigation for questions
   useEffect(() => {
@@ -157,14 +212,21 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     let esaiScore = 0;
     let sampleEssayAnswer = '';
     let sampleEssayPrompt = '';
+    const itemResponses: Record<string, string> = {};
 
     activePacket.questions.forEach((q) => {
       if (q.type === 'PG') {
+        if (pgAnswers[q.id]) {
+          itemResponses[q.id] = pgAnswers[q.id];
+        }
         if (pgAnswers[q.id] && pgAnswers[q.id] === q.correctAnswer) {
           pgScore += q.weight;
         }
       } else if (q.type === 'PG_KOMPLEKS') {
         const chosen = pgkAnswers[q.id] || [];
+        if (chosen.length > 0) {
+          itemResponses[q.id] = chosen.join(',');
+        }
         const expected = q.correctAnswers || [];
         const isExact =
           chosen.length === expected.length &&
@@ -175,11 +237,17 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           pgKompleksScore += Math.round(q.weight * 0.5);
         }
       } else if (q.type === 'BENAR_SALAH') {
+        if (bsAnswers[q.id] !== undefined) {
+          itemResponses[q.id] = bsAnswers[q.id] ? 'BENAR' : 'SALAH';
+        }
         if (bsAnswers[q.id] !== undefined && bsAnswers[q.id] === q.correctBoolean) {
           benarSalahScore += q.weight;
         }
       } else if (q.type === 'ESAI') {
         const ans = (esaiAnswers[q.id] || '').trim();
+        if (ans) {
+          itemResponses[q.id] = ans;
+        }
         sampleEssayPrompt = q.prompt;
         sampleEssayAnswer = ans || '(Belum diisi)';
         if (ans.length > 15) {
@@ -191,17 +259,22 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     });
 
     const totalScore = pgScore + pgKompleksScore + benarSalahScore + esaiScore;
+    const studentId = matchingStudent?.id || 'std-sim';
+    const studentName = matchingStudent?.nama || 'Santri Simulasi CBT';
+    const nomorPeserta = matchingStudent?.nomorPeserta || `26-${activePacket.jenjang}-SIM`;
+    const scheduleId = matchingSchedule?.id || 'sch-sim';
+
     const submission: ExamSubmission = {
       id: `sub-${Date.now()}`,
-      scheduleId: matchingSchedule?.id || 'sch-sim',
+      scheduleId,
       packetId: activePacket.id,
-      studentId: matchingStudent?.id || 'std-sim',
-      studentName: matchingStudent?.nama || 'Santri Simulasi CBT',
-      nomorPeserta: matchingStudent?.nomorPeserta || `26-${activePacket.jenjang}-SIM`,
+      studentId,
+      studentName,
+      nomorPeserta,
       jenjang: activePacket.jenjang,
       kelas: activePacket.kelas,
       mapel: activePacket.mapel,
-      submittedAt: 'Baru saja (Simulasi Live)',
+      submittedAt: 'Baru saja (Live Sync)',
       durationUsedMinutes: Math.max(
         1,
         Math.round(((matchingSchedule?.durasiMenit || 90) * 60 - secondsLeft) / 60)
@@ -216,7 +289,31 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       violations: violationCount,
       essayQuestionPrompt: sampleEssayPrompt,
       essayAnswerSample: sampleEssayAnswer,
+      itemResponses,
     };
+
+    const finalParticipant: LiveParticipant = {
+      studentId,
+      studentName,
+      nomorPeserta,
+      kelas: matchingStudent?.kelas || activePacket.kelas,
+      status: 'SELESAI',
+      answeredCount: activePacket.questions.length,
+      totalQuestions: activePacket.questions.length,
+      remainingMinutes: 0,
+      violations: violationCount,
+      ipAddress: '192.168.10.88 (Live Tab)',
+      lastActivity: 'Selesai & Submit',
+    };
+
+    publishLiveSyncEvent({
+      type: 'STUDENT_SUBMITTED',
+      scheduleId,
+      packetId: activePacket.id,
+      participant: finalParticipant,
+      submission,
+      timestamp: Date.now(),
+    });
 
     setShowConfirmSubmitModal(false);
     setLastSubmission(submission);
@@ -224,11 +321,59 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     onSubmitExamResult(submission);
   };
 
-  if (!activePacket) return null;
+  forceSubmitRef.current = handleFinishExam;
 
-  const answeredTotalCount = activePacket.questions.filter((q) => isQuestionAnswered(q)).length;
-  const unansweredTotalCount = activePacket.questions.length - answeredTotalCount;
-  const doubtTotalCount = activePacket.questions.filter((q) => doubtFlags[q.id]).length;
+  const answeredTotalCount = activePacket
+    ? activePacket.questions.filter((q) => isQuestionAnswered(q)).length
+    : 0;
+  const unansweredTotalCount = activePacket
+    ? activePacket.questions.length - answeredTotalCount
+    : 0;
+  const doubtTotalCount = activePacket
+    ? activePacket.questions.filter((q) => doubtFlags[q.id]).length
+    : 0;
+
+  // Broadcast live student progress across tabs whenever answers or violations change
+  useEffect(() => {
+    if (!hasStarted || isSubmitted || !activePacket) return;
+    const studentId = matchingStudent?.id || 'std-sim';
+    const studentName = matchingStudent?.nama || 'Santri Simulasi CBT';
+    const nomorPeserta = matchingStudent?.nomorPeserta || `26-${activePacket.jenjang}-SIM`;
+    const scheduleId = matchingSchedule?.id || 'sch-sim';
+
+    const liveParticipant: LiveParticipant = {
+      studentId,
+      studentName,
+      nomorPeserta,
+      kelas: matchingStudent?.kelas || activePacket.kelas,
+      status: isLockedByAntiCheat ? 'MELANGGAR' : 'MENGERJAKAN',
+      answeredCount: answeredTotalCount,
+      totalQuestions: activePacket.questions.length,
+      remainingMinutes: Math.max(1, Math.ceil(secondsLeft / 60)),
+      violations: violationCount,
+      ipAddress: '192.168.10.88 (Live Tab)',
+      lastActivity: isLockedByAntiCheat
+        ? 'Terkunci Anti-Cheat (Pindah Tab)'
+        : `Menjawab ${answeredTotalCount}/${activePacket.questions.length} soal`,
+    };
+
+    publishLiveSyncEvent({
+      type: 'STUDENT_PROGRESS',
+      scheduleId,
+      packetId: activePacket.id,
+      participant: liveParticipant,
+      timestamp: Date.now(),
+    });
+  }, [
+    hasStarted,
+    isSubmitted,
+    answeredTotalCount,
+    violationCount,
+    isLockedByAntiCheat,
+    activePacket?.id,
+  ]);
+
+  if (!activePacket) return null;
 
   // SCREEN 1: PRE-EXAM LOBBY
   if (!hasStarted) {
@@ -269,14 +414,32 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   // SCREEN 3: ACTIVE CBT WORKSPACE
   const currentQuestion = activePacket.questions[currentIndex] || activePacket.questions[0];
 
+  const displayedAnnouncement = liveAnnouncement ?? matchingSchedule?.announcement;
+
   return (
     <div className="space-y-4">
-      {matchingSchedule?.announcement && (
+      {proctorToast && (
+        <div className="rounded-2xl bg-[#14B894] text-white px-4 py-3 flex items-center justify-between gap-3 text-xs font-extrabold shadow-md animate-pulse">
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 shrink-0" />
+            <span>{proctorToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setProctorToast(null)}
+            className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 text-[11px]"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
+
+      {displayedAnnouncement && (
         <div className="rounded-2xl bg-[#FFF4D6] border border-[#F59E0B] px-4 py-3 flex items-center gap-3 text-xs text-[#1E1645] shadow-sm">
           <Megaphone className="w-4 h-4 text-[#D97706] shrink-0" />
           <div>
             <strong className="font-extrabold">Pengumuman Pengawas Ruang: </strong>
-            <span>{matchingSchedule.announcement}</span>
+            <span>{displayedAnnouncement}</span>
           </div>
         </div>
       )}
@@ -288,9 +451,15 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
             {activePacket.jenjang}
           </div>
           <div>
-            <h2 className="text-sm sm:text-base font-extrabold leading-tight">
-              {activePacket.title}
-            </h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm sm:text-base font-extrabold leading-tight">
+                {activePacket.title}
+              </h2>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#14B894]/25 text-[#55E5C7] text-[10px] font-extrabold">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#14B894] animate-ping" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
             <p className="text-[11px] text-indigo-200">
               Peserta: {matchingStudent?.nama} ({matchingStudent?.nomorPeserta})
             </p>
@@ -385,6 +554,44 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           onClose={() => setShowConfirmSubmitModal(false)}
           onConfirmFinish={handleFinishExam}
         />
+      )}
+
+      {isLockedByAntiCheat && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-elevated rounded-[28px] max-w-md w-full p-6 shadow-floating border-2 border-[#D93834] text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-red-100 text-[#D93834] flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-extrabold text-text-main">
+              Sesi Ujian Terkunci Otomatis (Anti-Cheat)
+            </h3>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Sistem mendeteksi Anda berpindah tab atau keluar dari jendela ujian sebanyak{' '}
+              <strong className="text-[#D93834]">{violationCount}x</strong> (Batas maksimal:{' '}
+              {maxViolationsAllowed}x). Status Anda kini ditandai{' '}
+              <strong className="text-[#D93834]">TERKUNCI / MELANGGAR</strong> di layar Pengawas
+              Ruang.
+            </p>
+            <div className="p-3.5 rounded-2xl bg-surface border border-border-subtle text-xs text-left space-y-1">
+              <div className="font-extrabold text-text-main">Cara Membuka Kunci:</div>
+              <div className="text-text-muted">
+                1. Hubungi Pengawas Ruang atau buka tab <strong>Jadwal &amp; Live Proctoring</strong>{' '}
+                lalu klik tombol <strong>Buka Kunci</strong> pada nama Anda.
+              </div>
+              <div className="text-text-muted">
+                2. Atau gunakan tombol simulasi darurat di bawah ini:
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setViolationCount(0)}
+              className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold transition"
+            >
+              <Unlock className="w-4 h-4" />
+              <span>Buka Kunci Simulasi (Reset Pelanggaran)</span>
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

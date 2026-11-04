@@ -1,11 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Languages, X } from 'lucide-react';
+import { Headphones, Image as ImageIcon, Languages, Trash2, Upload, X } from 'lucide-react';
 import {
   ExamPacket,
   Question,
   QuestionOption,
   QuestionType,
 } from '../../types/cbt';
+import {
+  AUDIO_ISTIMA_PRESETS,
+  compressImageFileToDataUrl,
+  DIAGRAM_PRESETS,
+} from '../../utils/questionMediaHelper';
+import { QuestionMediaAttachment } from '../common/QuestionMediaAttachment';
 
 const HARAKAT_BUTTONS = [
   { char: 'َ', label: 'Fathah' },
@@ -51,6 +57,9 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   const [qCorrectBool, setQCorrectBool] = useState<boolean>(true);
   const [qRubric, setQRubric] = useState('');
   const [qPembahasan, setQPembahasan] = useState('');
+  const [qMediaImageUrl, setQMediaImageUrl] = useState('');
+  const [qMediaAudioUrl, setQMediaAudioUrl] = useState('');
+  const [qMediaCaption, setQMediaCaption] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -70,6 +79,9 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
       setQCorrectBool(editingQuestion.correctBoolean ?? true);
       setQRubric(editingQuestion.essayRubric || '');
       setQPembahasan(editingQuestion.pembahasan || '');
+      setQMediaImageUrl(editingQuestion.mediaImageUrl || '');
+      setQMediaAudioUrl(editingQuestion.mediaAudioUrl || '');
+      setQMediaCaption(editingQuestion.mediaCaption || '');
     } else {
       setQType('PG');
       setQPrompt('');
@@ -88,6 +100,9 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
       setQCorrectBool(true);
       setQRubric('');
       setQPembahasan('');
+      setQMediaImageUrl('');
+      setQMediaAudioUrl('');
+      setQMediaCaption('');
     }
   }, [isOpen, editingQuestion]);
 
@@ -97,6 +112,35 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     setQCorrectPGK((prev) =>
       prev.includes(lbl) ? prev.filter((item) => item !== lbl) : [...prev, lbl]
     );
+  };
+
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageFileToDataUrl(file);
+      setQMediaImageUrl(compressed);
+      if (!qMediaCaption.trim()) {
+        setQMediaCaption(`Gambar Ilustrasi: ${file.name.replace(/\.[^/.]+$/, '')}`);
+      }
+    } catch {
+      // Ignore upload error
+    }
+  };
+
+  const handleAudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setQMediaAudioUrl(reader.result);
+        if (!qMediaCaption.trim()) {
+          setQMediaCaption(`Audio Soal: ${file.name.replace(/\.[^/.]+$/, '')}`);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -117,6 +161,9 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
       arabicPrompt: qArabicPrompt.trim() || undefined,
       kitabReference: qKitabRef.trim() || undefined,
       isRtl: Boolean(qArabicPrompt.trim()),
+      mediaImageUrl: qMediaImageUrl.trim() || undefined,
+      mediaAudioUrl: qMediaAudioUrl.trim() || undefined,
+      mediaCaption: qMediaCaption.trim() || undefined,
       options: qType === 'PG' || qType === 'PG_KOMPLEKS' ? validOptions : undefined,
       correctAnswer: qType === 'PG' ? qCorrectPG : undefined,
       correctAnswers: qType === 'PG_KOMPLEKS' ? qCorrectPGK : undefined,
@@ -224,6 +271,134 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
               placeholder="Tuliskan pokok soal atau pertanyaan di sini..."
               className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
             />
+          </div>
+
+          {/* Media Attachment Section: Image / Diagram & Audio Istima' */}
+          <div className="rounded-2xl bg-surface/90 border border-border-subtle p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-extrabold text-text-main flex items-center gap-1.5">
+                <ImageIcon className="w-4 h-4 text-[var(--brand-text-accent)]" />
+                <span>Lampiran Media Soal: Gambar / Bagan &amp; Audio Istima’ (Opsional)</span>
+              </span>
+              {(qMediaImageUrl || qMediaAudioUrl) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQMediaImageUrl('');
+                    setQMediaAudioUrl('');
+                    setQMediaCaption('');
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-[#D93834] text-[11px] font-bold"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Reset Media</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Image Upload / Preset */}
+              <div className="p-3 rounded-xl bg-elevated border border-border-subtle space-y-2">
+                <label className="font-bold text-text-main flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-[#211955]" />
+                  <span>Gambar Ilustrasi / Bagan Kurikulum</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#211955] text-white font-bold cursor-pointer hover:bg-[#2d2270] transition shrink-0">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Upload Gambar</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <select
+                    value={
+                      DIAGRAM_PRESETS.some((p) => p.dataUrl === qMediaImageUrl)
+                        ? DIAGRAM_PRESETS.find((p) => p.dataUrl === qMediaImageUrl)?.id
+                        : ''
+                    }
+                    onChange={(e) => {
+                      const preset = DIAGRAM_PRESETS.find((p) => p.id === e.target.value);
+                      if (preset) {
+                        setQMediaImageUrl(preset.dataUrl);
+                        setQMediaCaption(preset.caption);
+                      }
+                    }}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-surface border border-border-subtle text-text-main text-[11px] font-semibold"
+                  >
+                    <option value="">-- Pilih Bagan Kurikulum Siap Pakai --</option>
+                    {DIAGRAM_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Audio Upload / Istima Preset */}
+              <div className="p-3 rounded-xl bg-elevated border border-border-subtle space-y-2">
+                <label className="font-bold text-text-main flex items-center gap-1.5">
+                  <Headphones className="w-3.5 h-3.5 text-[#14B894]" />
+                  <span>Audio Istima’ / Listening Comprehension</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14B894] text-white font-bold cursor-pointer hover:bg-[#0b987c] transition shrink-0">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Upload Audio</span>
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleAudioFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <select
+                    value={qMediaAudioUrl.startsWith('SYNTH_ISTIMA_') ? qMediaAudioUrl : ''}
+                    onChange={(e) => {
+                      const preset = AUDIO_ISTIMA_PRESETS.find((p) => p.id === e.target.value);
+                      if (preset) {
+                        setQMediaAudioUrl(preset.id);
+                        if (!qMediaCaption.trim()) {
+                          setQMediaCaption(preset.caption);
+                        }
+                      } else if (!e.target.value) {
+                        setQMediaAudioUrl('');
+                      }
+                    }}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-surface border border-border-subtle text-text-main text-[11px] font-semibold"
+                  >
+                    <option value="">-- Pilih Preset Audio Istima’ --</option>
+                    {AUDIO_ISTIMA_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {(qMediaImageUrl || qMediaAudioUrl) && (
+              <div className="space-y-2 pt-1">
+                <input
+                  type="text"
+                  value={qMediaCaption}
+                  onChange={(e) => setQMediaCaption(e.target.value)}
+                  placeholder="Keterangan gambar/audio (misal: Perhatikan bagan pembagian kalimat berikut)..."
+                  className="w-full px-3.5 py-2 rounded-xl bg-elevated border border-border-subtle text-text-main"
+                />
+                <QuestionMediaAttachment
+                  mediaImageUrl={qMediaImageUrl || undefined}
+                  mediaAudioUrl={qMediaAudioUrl || undefined}
+                  mediaCaption={qMediaCaption || undefined}
+                  compact
+                />
+              </div>
+            )}
           </div>
 
           {/* Dynamic Options for PG / PG_KOMPLEKS */}

@@ -14,6 +14,7 @@ import { NavTab, UserRole } from '../../types/cbt';
 interface FloatingSidebarProps {
   activeTab: NavTab;
   userRole: UserRole;
+  allowedTabs?: NavTab[];
   onSelectTab: (tab: NavTab) => void;
   onSetUserRole: (role: UserRole) => void;
   onOpenStudentSim: () => void;
@@ -33,12 +34,18 @@ const NAV_ITEMS: { id: NavTab; label: string; icon: React.ReactNode }[] = [
 export const FloatingSidebar: React.FC<FloatingSidebarProps> = ({
   activeTab,
   userRole,
+  allowedTabs,
   onSelectTab,
   onSetUserRole,
   onOpenStudentSim,
   onOpenGuide,
   onLogout,
 }) => {
+  const visibleNavItems =
+    userRole === 'guru' && allowedTabs && allowedTabs.length > 0
+      ? NAV_ITEMS.filter((item) => allowedTabs.includes(item.id))
+      : NAV_ITEMS;
+
   return (
     <aside
       className="no-print sticky top-3 sm:top-4 lg:top-11 self-stretch lg:self-start lg:w-[82px] lg:h-[calc(100vh-5.5rem)] lg:max-h-[820px] shrink-0 rounded-[26px] lg:rounded-[28px] text-white flex lg:flex-col items-center justify-between lg:justify-start py-2.5 px-3 sm:px-4 lg:py-4 lg:px-0 shadow-floating z-40"
@@ -48,8 +55,8 @@ export const FloatingSidebar: React.FC<FloatingSidebarProps> = ({
       <button
         type="button"
         onClick={() => {
-          onSetUserRole('admin');
-          onSelectTab('dashboard');
+          if (userRole === 'siswa') onSetUserRole('admin');
+          onSelectTab(visibleNavItems[0]?.id || 'dashboard');
         }}
         title="Beranda Utama JN ExamCBTCore"
         className="group cursor-pointer flex lg:flex-col items-center justify-center gap-2 lg:gap-1.5 lg:w-full select-none shrink-0 focus:outline-none"
@@ -70,14 +77,14 @@ export const FloatingSidebar: React.FC<FloatingSidebarProps> = ({
         aria-label="Navigasi Utama CBT"
         className="flex lg:flex-col items-center lg:items-stretch gap-1 sm:gap-1.5 lg:gap-1.5 lg:w-full"
       >
-        {NAV_ITEMS.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive = userRole !== 'siswa' && activeTab === item.id;
           return (
             <button
               key={item.id}
               type="button"
               onClick={() => {
-                onSetUserRole('admin');
+                if (userRole === 'siswa') onSetUserRole('admin');
                 onSelectTab(item.id);
               }}
               title={item.label}

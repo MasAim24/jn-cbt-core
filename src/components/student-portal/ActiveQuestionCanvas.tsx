@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, Flag } from 'lucide-react';
 import { Question } from '../../types/cbt';
+import { QuestionMediaAttachment } from '../common/QuestionMediaAttachment';
 
 const ESSAY_HARAKAT = ['َ', 'ِ', 'ُ', 'ً', 'ٍ', 'ٌ', 'ْ', 'ّ'];
 
@@ -84,6 +85,12 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
           {currentQuestion.arabicPrompt}
         </div>
       )}
+
+      <QuestionMediaAttachment
+        mediaImageUrl={currentQuestion.mediaImageUrl}
+        mediaAudioUrl={currentQuestion.mediaAudioUrl}
+        mediaCaption={currentQuestion.mediaCaption}
+      />
 
       <p className={`${bodySizeClass} font-bold text-text-main leading-relaxed`}>
         {currentQuestion.prompt}

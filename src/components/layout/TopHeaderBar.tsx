@@ -178,23 +178,23 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
             className="flex items-center gap-2.5 pl-1.5 pr-3 py-1.5 rounded-2xl bg-elevated border border-border-subtle/60 shadow-card hover:border-[var(--brand-text-accent)] transition"
           >
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#F0544F] to-[#F8B478] text-white font-extrabold text-xs flex items-center justify-center shadow-sm optical-circle-overshoot">
-              {authSession?.avatarInitials || (userRole === 'admin' ? 'AF' : userRole === 'guru' ? 'KL' : 'SN')}
+              {authSession?.avatarInitials || (userRole === 'admin' ? 'AD' : userRole === 'guru' ? 'GR' : 'SN')}
             </div>
             <div className="text-left">
               <div className="text-xs font-extrabold text-text-main leading-none whitespace-nowrap">
                 {authSession?.name ||
                   (userRole === 'admin'
-                    ? 'Ust. Ahmad Fauzi'
+                    ? 'Administrator Utama CBT'
                     : userRole === 'guru'
-                    ? 'KH. Dr. Lukman'
+                    ? 'Pejabat / Dewan Guru'
                     : 'Mode Ujian Santri')}
               </div>
               <div className="text-[10px] font-semibold text-text-muted mt-0.5 whitespace-nowrap">
                 {authSession?.badgeRole ||
                   (userRole === 'admin'
-                    ? 'Operator Utama CBT'
+                    ? 'Master Administrator CBT'
                     : userRole === 'guru'
-                    ? 'Pengawas & Guru'
+                    ? 'Kepala / Wali Kelas / Guru'
                     : 'Simulasi Peserta')}
               </div>
             </div>

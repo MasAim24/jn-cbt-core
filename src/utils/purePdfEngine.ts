@@ -11,6 +11,7 @@ export type OfficialPdfDocType =
   | 'KARTU_PESERTA'
   | 'PRESENSI_BERITA_ACARA'
   | 'REKAP_NILAI'
+  | 'LEGER_NILAI'
   | 'NASKAH_SOAL';
 
 // A4 dimensions at 2x High-DPI (1588 x 2246 px -> exact 1 : 1.4142 A4 aspect ratio)
@@ -148,6 +149,30 @@ function createBlankA4Canvas(): { canvas: HTMLCanvasElement; ctx: CanvasRenderin
   return { canvas, ctx };
 }
 
+function safeRoundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radii: number | [number, number, number, number]
+) {
+  const [tl, tr, br, bl] = Array.isArray(radii)
+    ? radii
+    : [radii, radii, radii, radii];
+  ctx.beginPath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + w - tr, y);
+  if (tr > 0) ctx.quadraticCurveTo(x + w, y, x + w, y + tr);
+  ctx.lineTo(x + w, y + h - br);
+  if (br > 0) ctx.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+  ctx.lineTo(x + bl, y + h);
+  if (bl > 0) ctx.quadraticCurveTo(x, y + h, x, y + h - bl);
+  ctx.lineTo(x, y + tl);
+  if (tl > 0) ctx.quadraticCurveTo(x, y, x + tl, y);
+  ctx.closePath();
+}
+
 function drawOfficialLetterhead(
   ctx: CanvasRenderingContext2D,
   settings: SchoolSettings,
@@ -160,14 +185,12 @@ function drawOfficialLetterhead(
   // Left Emblem Seal Box
   ctx.save();
   ctx.fillStyle = '#211955';
-  ctx.beginPath();
-  ctx.roundRect(marginX, y, 108, 108, 20);
+  safeRoundRect(ctx, marginX, y, 108, 108, 20);
   ctx.fill();
 
   ctx.strokeStyle = '#F8B478';
   ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.roundRect(marginX + 8, y + 8, 92, 92, 14);
+  safeRoundRect(ctx, marginX + 8, y + 8, 92, 92, 14);
   ctx.stroke();
 
   ctx.fillStyle = '#F8B478';
@@ -394,15 +417,13 @@ export function renderKartuPesertaPages(
       ctx.fillStyle = '#FFFFFF';
       ctx.strokeStyle = '#0F172A';
       ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.roundRect(cx, cy, cardW, cardH, 20);
+      safeRoundRect(ctx, cx, cy, cardW, cardH, 20);
       ctx.fill();
       ctx.stroke();
 
       // Card Top Banner
       ctx.fillStyle = '#211955';
-      ctx.beginPath();
-      ctx.roundRect(cx, cy, cardW, 92, [18, 18, 0, 0]);
+      safeRoundRect(ctx, cx, cy, cardW, 92, [18, 18, 0, 0]);
       ctx.fill();
 
       ctx.fillStyle = '#F8B478';
@@ -423,8 +444,7 @@ export function renderKartuPesertaPages(
 
       // Jenjang Pill top-right of card
       ctx.fillStyle = meta.badgeBg;
-      ctx.beginPath();
-      ctx.roundRect(cx + cardW - 140, cy + 24, 116, 42, 12);
+      safeRoundRect(ctx, cx + cardW - 140, cy + 24, 116, 42, 12);
       ctx.fill();
       ctx.fillStyle = meta.badgeText;
       ctx.font = '800 18px "Plus Jakarta Sans", sans-serif';
@@ -462,8 +482,7 @@ export function renderKartuPesertaPages(
       ctx.fillStyle = '#FFF4D6';
       ctx.strokeStyle = '#F59E0B';
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(cx + 24, cy + 358, 360, 62, 14);
+      safeRoundRect(ctx, cx + 24, cy + 358, 360, 62, 14);
       ctx.fill();
       ctx.stroke();
 
@@ -716,8 +735,7 @@ export function renderRekapNilaiPages(
         ctx.fillStyle = '#F8FAFC';
         ctx.strokeStyle = '#CBD5E1';
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.roundRect(bx, y, boxW, 92, 14);
+        safeRoundRect(ctx, bx, y, boxW, 92, 14);
         ctx.fill();
         ctx.stroke();
 
@@ -896,8 +914,7 @@ export function renderNaskahSoalPages(
       ctx.fillStyle = '#F1F5F9';
       ctx.strokeStyle = '#CBD5E1';
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(marginX, y, contentW, 52, 12);
+      safeRoundRect(ctx, marginX, y, contentW, 52, 12);
       ctx.fill();
       ctx.stroke();
 
@@ -923,8 +940,7 @@ export function renderNaskahSoalPages(
         ctx.fillStyle = '#FFF8F1';
         ctx.strokeStyle = '#FCD9BD';
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.roundRect(marginX, y, contentW, 96, 14);
+        safeRoundRect(ctx, marginX, y, contentW, 96, 14);
         ctx.fill();
         ctx.stroke();
 
@@ -996,6 +1012,204 @@ export function renderNaskahSoalPages(
       ctx.strokeRect(marginX - 4, cardTop - 4, contentW + 8, y - cardTop - 16);
       ctx.restore();
     });
+
+    drawPageFooter(ctx, settings, p + 1, totalPages);
+    pages.push(canvas);
+  }
+
+  return pages;
+}
+
+// ============================================================================
+// 5. RENDER LEGER NILAI KOLEKTIF, PERINGKAT PARALEL & ANALISIS DAYA SERAP (A4)
+// ============================================================================
+export function renderLegerNilaiPages(
+  submissions: ExamSubmission[],
+  settings: SchoolSettings,
+  selectedJenjang: JenjangFilter
+): HTMLCanvasElement[] {
+  const ranked = [...submissions].sort((a, b) => b.totalScore - a.totalScore);
+  const perPage = 13;
+  const totalPages = Math.max(1, Math.ceil(ranked.length / perPage));
+  const pages: HTMLCanvasElement[] = [];
+
+  for (let p = 0; p < totalPages; p++) {
+    const { canvas, ctx } = createBlankA4Canvas();
+    const slice = ranked.slice(p * perPage, (p + 1) * perPage);
+    const jenjangLabel =
+      selectedJenjang === 'ALL'
+        ? 'Semua Jenjang (MTs • MA • PDF Wustho • Ma’had ’Ulya)'
+        : JENJANG_META[selectedJenjang].fullLabel;
+
+    let y = drawOfficialLetterhead(
+      ctx,
+      settings,
+      'Leger Nilai Kolektif, Peringkat & Analisis Daya Serap',
+      `Filter: ${jenjangLabel} • Tahun Pelajaran ${settings.tahunAjaran} (Semester ${settings.semester})`
+    );
+
+    const marginX = 95;
+    const tableW = A4_W - marginX * 2;
+
+    // On Page 1: Draw 4-Jenjang Daya Serap & Predikat Summary Matrix
+    if (p === 0) {
+      const boxW = (tableW - 36) / 4;
+      const jenjangs = ['MTs', 'MA', 'Wustho', 'Ulya'] as const;
+      jenjangs.forEach((j, idx) => {
+        const list = submissions.filter((s) => s.jenjang === j);
+        const avg =
+          list.length > 0
+            ? (list.reduce((a, b) => a + b.totalScore, 0) / list.length).toFixed(1)
+            : '0.0';
+        const tuntas = list.filter((s) => s.totalScore >= s.kkm).length;
+        const rate = list.length > 0 ? Math.round((tuntas / list.length) * 100) : 100;
+        const bx = marginX + idx * (boxW + 12);
+
+        ctx.fillStyle = '#F8FAFC';
+        ctx.strokeStyle = '#CBD5E1';
+        ctx.lineWidth = 2;
+        safeRoundRect(ctx, bx, y, boxW, 106, 14);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#211955';
+        ctx.font = '800 15px "Plus Jakarta Sans", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`JENJANG ${j.toUpperCase()}`, bx + 18, y + 30);
+
+        ctx.fillStyle = '#0F172A';
+        ctx.font = '800 28px "JetBrains Mono", monospace';
+        ctx.fillText(avg, bx + 18, y + 66);
+
+        ctx.fillStyle = '#087963';
+        ctx.font = '700 13px "Plus Jakarta Sans", sans-serif';
+        ctx.fillText(`Tuntas KKM: ${rate}% (${tuntas}/${list.length})`, bx + 18, y + 90);
+      });
+      y += 130;
+    }
+
+    const cols = [
+      { title: 'RANK', w: 80, align: 'center' as const },
+      { title: 'NAMA SANTRI & NOMOR CBT', w: 380, align: 'left' as const },
+      { title: 'KELAS & MAPEL', w: 320, align: 'left' as const },
+      { title: 'OBJEKTIF', w: 120, align: 'center' as const },
+      { title: 'ESAI', w: 100, align: 'center' as const },
+      { title: 'NILAI AKHIR', w: 130, align: 'center' as const },
+      { title: 'PREDIKAT TAQDIR', w: 268, align: 'center' as const },
+    ];
+
+    const headH = 56;
+    ctx.fillStyle = '#1E1645';
+    ctx.fillRect(marginX, y, tableW, headH);
+
+    let cx = marginX;
+    cols.forEach((col) => {
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cx, y, col.w, headH);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '800 15px "Plus Jakarta Sans", sans-serif';
+      ctx.textAlign = col.align;
+      const tx = col.align === 'center' ? cx + col.w / 2 : cx + 14;
+      ctx.fillText(col.title, tx, y + 34);
+      cx += col.w;
+    });
+    y += headH;
+
+    const rowH = 74;
+    slice.forEach((sub, idx) => {
+      const rankNum = p * perPage + idx + 1;
+      const objScore = sub.pgScore + sub.pgKompleksScore + sub.benarSalahScore;
+      const predikat =
+        sub.totalScore >= 90
+          ? 'MUMTAZ (A • Istimewa)'
+          : sub.totalScore >= 80
+          ? 'JAYYID JIDDAN (B+ • Sangat Baik)'
+          : sub.totalScore >= sub.kkm
+          ? 'JAYYID (B • Baik / Tuntas)'
+          : 'MAQBUL / REMEDIAL (C)';
+
+      cx = marginX;
+      ctx.fillStyle = idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC';
+      ctx.fillRect(marginX, y, tableW, rowH);
+
+      cols.forEach((col, cIdx) => {
+        ctx.strokeStyle = '#CBD5E1';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(cx, y, col.w, rowH);
+
+        ctx.textAlign = col.align;
+        const tx = col.align === 'center' ? cx + col.w / 2 : cx + 14;
+
+        if (cIdx === 0) {
+          ctx.fillStyle = rankNum <= 3 ? '#B45309' : '#0F172A';
+          ctx.font = '800 18px "JetBrains Mono", monospace';
+          ctx.fillText(`#${rankNum}`, tx, y + 44);
+        } else if (cIdx === 1) {
+          ctx.fillStyle = '#0F172A';
+          ctx.font = '800 17px "Plus Jakarta Sans", sans-serif';
+          ctx.fillText(sub.studentName.slice(0, 28), tx, y + 32);
+          ctx.fillStyle = '#64748B';
+          ctx.font = '600 14px "JetBrains Mono", monospace';
+          ctx.fillText(`${sub.nomorPeserta} • Durasi ${sub.durationUsedMinutes}m`, tx, y + 56);
+        } else if (cIdx === 2) {
+          ctx.fillStyle = '#211955';
+          ctx.font = '800 15px "Plus Jakarta Sans", sans-serif';
+          ctx.fillText(`[${sub.jenjang}] ${sub.kelas}`, tx, y + 32);
+          ctx.fillStyle = '#475569';
+          ctx.font = '600 14px "Plus Jakarta Sans", sans-serif';
+          ctx.fillText(sub.mapel.slice(0, 26), tx, y + 56);
+        } else if (cIdx === 3) {
+          ctx.fillStyle = '#0F172A';
+          ctx.font = '700 17px "JetBrains Mono", monospace';
+          ctx.fillText(String(objScore), tx, y + 44);
+        } else if (cIdx === 4) {
+          ctx.fillStyle = '#0F172A';
+          ctx.font = '700 17px "JetBrains Mono", monospace';
+          ctx.fillText(String(sub.esaiScore), tx, y + 44);
+        } else if (cIdx === 5) {
+          ctx.fillStyle = '#211955';
+          ctx.font = '800 21px "JetBrains Mono", monospace';
+          ctx.fillText(String(sub.totalScore), tx, y + 45);
+        } else if (cIdx === 6) {
+          ctx.fillStyle = sub.totalScore >= sub.kkm ? '#087963' : '#D93834';
+          ctx.font = '800 14px "Plus Jakarta Sans", sans-serif';
+          ctx.fillText(predikat, tx, y + 44);
+        }
+
+        cx += col.w;
+      });
+      y += rowH;
+    });
+
+    // Legalization Signature Block
+    y += 42;
+    if (y + 210 < A4_H - 80) {
+      ctx.save();
+      const sig1X = marginX + 260;
+      const sig2X = A4_W - marginX - 260;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#0F172A';
+      ctx.font = '600 17px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText('Mengetahui, Pimpinan Madrasah / Ma’had', sig1X, y + 25);
+      ctx.fillText(`${settings.kota}, Panitia Kurikulum & CBT`, sig2X, y + 25);
+
+      const pimpinanName =
+        selectedJenjang === 'MTs'
+          ? settings.kepalaMTs
+          : selectedJenjang === 'MA'
+          ? settings.kepalaMA
+          : selectedJenjang === 'Wustho'
+          ? settings.mudirWustho
+          : selectedJenjang === 'Ulya'
+          ? settings.mudirUlya
+          : settings.kepalaMA;
+
+      ctx.font = '800 17px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(pimpinanName, sig1X, y + 170);
+      ctx.fillText(settings.ketuaPanitia, sig2X, y + 170);
+      ctx.restore();
+    }
 
     drawPageFooter(ctx, settings, p + 1, totalPages);
     pages.push(canvas);

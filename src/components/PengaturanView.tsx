@@ -1,19 +1,26 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  ArrowRight,
   CheckCircle2,
   Database,
   Download,
+  KeyRound,
   RotateCcw,
   Save,
   ShieldCheck,
   Sliders,
   Upload,
+  UserCheck,
+  Users,
 } from 'lucide-react';
-import { SchoolSettings } from '../types/cbt';
+import { NavTab, SchoolSettings, Student, Teacher } from '../types/cbt';
 import { CornerTableSticker } from './common/CornerStickerBadge';
 
 interface PengaturanViewProps {
   settings: SchoolSettings;
+  students?: Student[];
+  teachers?: Teacher[];
+  onNavigateTab?: (tab: NavTab) => void;
   onSaveSettings: (next: SchoolSettings) => void;
   onResetDemoData: () => void;
   onExportFullBackup: () => void;
@@ -22,6 +29,9 @@ interface PengaturanViewProps {
 
 export const PengaturanView: React.FC<PengaturanViewProps> = ({
   settings,
+  students = [],
+  teachers = [],
+  onNavigateTab,
   onSaveSettings,
   onResetDemoData,
   onExportFullBackup,
@@ -31,6 +41,10 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
   const [savedNotice, setSavedNotice] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setForm(settings);
+  }, [settings]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,15 +74,24 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
     e.target.value = '';
   };
 
+  const kepalaCount = teachers.filter((t) => t.peran === 'Kepala Madrasah / Mudir').length;
+  const waliCount = teachers.filter((t) => t.peran === 'Wali Kelas').length;
+  const guruMapelCount = teachers.filter(
+    (t) =>
+      t.peran === 'Guru Mapel' ||
+      t.peran === 'Pengawas CBT' ||
+      t.peran === 'Koordinator Kurikulum'
+  ).length;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-elevated p-5 rounded-[24px] shadow-card border border-border-subtle/60">
         <div>
           <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-indigo-100 text-[#211955]">
-            Konfigurasi Sistem &amp; Multi-Jenjang
+            Konfigurasi Sistem, Akun &amp; Multi-Jenjang
           </span>
           <h1 className="text-xl font-extrabold text-text-main mt-1">
-            Pengaturan Lembaga, Keamanan CBT &amp; Sinkronisasi Database
+            Pengaturan Akun Admin, Pimpinan Lembaga &amp; Keamanan CBT
           </h1>
           {restoreNotice && (
             <p className="text-xs font-extrabold text-[#087963] mt-1">{restoreNotice}</p>
@@ -103,134 +126,232 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
             type="button"
             onClick={onResetDemoData}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-[#D93834] text-xs font-bold whitespace-nowrap transition"
+            title="Bersihkan seluruh data santri/guru kembali ke pengaturan awal Admin"
           >
             <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-            <span>Reset Data Awal</span>
+            <span>Reset Bersih (Hanya Admin)</span>
           </button>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-xs">
-        {/* Left: Identitas Madrasah & Pimpinan 4 Jenjang */}
-        <div className="lg:col-span-7 relative overflow-hidden rounded-[26px] bg-elevated p-6 shadow-card border border-border-subtle/60 space-y-4">
-          <CornerTableSticker
-            type="pengaturan"
-            glowTone="royal-teal"
-            position="bottom-right"
-            sizeClass="w-32 h-32 sm:w-40 sm:h-40"
-            opacityClass="opacity-80"
-          />
-          <h2 className="relative z-10 text-base font-extrabold text-text-main flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-[var(--brand-text-accent)]" />
-            <span>Identitas Yayasan &amp; Pimpinan 4 Jenjang</span>
+      {/* Ringkasan & Pintasan Manajemen Akun & Database Santri Real */}
+      <div className="rounded-[26px] bg-gradient-to-r from-[#211955] to-[#302475] text-white p-6 shadow-card flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="space-y-1.5 max-w-2xl">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/15 text-[#F8B478] text-[10px] font-extrabold uppercase tracking-wider">
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>Pusat Kendali Akun &amp; Database Lapangan</span>
+          </div>
+          <h2 className="text-base sm:text-lg font-extrabold">
+            Input Akun Kepala Madrasah/Diniyah, Wali Kelas, Guru Mapel &amp; Database Santri Real
           </h2>
+          <p className="text-xs text-indigo-200 leading-relaxed">
+            Seluruh data dummy telah dibersihkan. Gunakan menu{' '}
+            <strong className="text-white">Database Santri &amp; Akun Guru</strong> untuk menambah
+            akun pejabat/pendidik beserta hak akses loginnya serta menginput database santri real di
+            lapangan.
+          </p>
+          <div className="pt-1 flex flex-wrap items-center gap-2 text-[11px] font-bold">
+            <span className="px-2.5 py-1 rounded-lg bg-white/10 text-indigo-100">
+              Kepala Madrasah/Mudir: <strong className="text-[#F8B478]">{kepalaCount}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-white/10 text-indigo-100">
+              Wali Kelas: <strong className="text-[#F8B478]">{waliCount}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-white/10 text-indigo-100">
+              Guru Mapel &amp; Pengawas: <strong className="text-[#F8B478]">{guruMapelCount}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-white/10 text-indigo-100">
+              Database Santri Real: <strong className="text-[#14B894]">{students.length}</strong>
+            </span>
+          </div>
+        </div>
 
-          <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div className="sm:col-span-2">
-              <label className="font-bold text-text-main block mb-1">
-                Nama Yayasan / Pondok Pesantren
-              </label>
-              <input
-                type="text"
-                value={form.namaYayasan}
-                onChange={(e) => setForm({ ...form, namaYayasan: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
-              />
-            </div>
+        {onNavigateTab && (
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => onNavigateTab('peserta-kartu')}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#F8B478] hover:bg-[#f3a35c] text-[#1E1645] text-xs font-extrabold transition shadow-sm"
+            >
+              <Users className="w-4 h-4" />
+              <span>Kelola Akun Guru &amp; Input Santri Real</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
 
-            <div>
-              <label className="font-bold text-text-main block mb-1">Nama Aplikasi CBT</label>
-              <input
-                type="text"
-                value={form.namaAplikasi}
-                onChange={(e) => setForm({ ...form, namaAplikasi: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main font-bold"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-xs">
+        {/* Left: Identitas Madrasah, Pimpinan 4 Jenjang & Akun Master Admin */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Kredensial Akun Master Admin */}
+          <div className="rounded-[26px] bg-elevated p-6 shadow-card border border-border-subtle/60 space-y-4">
+            <h2 className="text-base font-extrabold text-text-main flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-[#B85D19]" />
+              <span>Pengaturan Akun Master Administrator CBT</span>
+            </h2>
+            <p className="text-[11px] text-text-muted">
+              Akun Administrator Utama memiliki hak akses penuh untuk menginput akun Kepala
+              Madrasah/Diniyah, Wali Kelas, Guru Mapel, serta mengelola database santri real.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
               <div>
-                <label className="font-bold text-text-main block mb-1">Tahun Ajaran</label>
+                <label className="font-bold text-text-main block mb-1">
+                  Nama Tampilan Admin
+                </label>
                 <input
                   type="text"
-                  value={form.tahunAjaran}
-                  onChange={(e) => setForm({ ...form, tahunAjaran: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                  value={form.adminName || 'Administrator Utama CBT'}
+                  onChange={(e) => setForm({ ...form, adminName: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main font-bold"
                 />
               </div>
               <div>
-                <label className="font-bold text-text-main block mb-1">Semester</label>
-                <select
-                  value={form.semester}
-                  onChange={(e) =>
-                    setForm({ ...form, semester: e.target.value as 'Ganjil' | 'Genap' })
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
-                >
-                  <option value="Ganjil">Ganjil</option>
-                  <option value="Genap">Genap</option>
-                </select>
+                <label className="font-bold text-text-main block mb-1">
+                  Username Login Admin
+                </label>
+                <input
+                  type="text"
+                  value={form.adminUsername || 'admin'}
+                  onChange={(e) => setForm({ ...form, adminUsername: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Password Login Admin
+                </label>
+                <input
+                  type="text"
+                  value={form.adminPassword || 'admin123'}
+                  onChange={(e) => setForm({ ...form, adminPassword: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main font-mono font-bold"
+                />
               </div>
             </div>
+          </div>
 
-            <div>
-              <label className="font-bold text-text-main block mb-1">
-                Kepala Madrasah Tsanawiyah (MTs)
-              </label>
-              <input
-                type="text"
-                value={form.kepalaMTs}
-                onChange={(e) => setForm({ ...form, kepalaMTs: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
-              />
-            </div>
+          {/* Identitas Yayasan & Pimpinan 4 Jenjang */}
+          <div className="relative overflow-hidden rounded-[26px] bg-elevated p-6 shadow-card border border-border-subtle/60 space-y-4">
+            <CornerTableSticker
+              type="pengaturan"
+              glowTone="royal-teal"
+              position="bottom-right"
+              sizeClass="w-32 h-32 sm:w-40 sm:h-40"
+              opacityClass="opacity-80"
+            />
+            <h2 className="relative z-10 text-base font-extrabold text-text-main flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-[var(--brand-text-accent)]" />
+              <span>Identitas Yayasan &amp; Pejabat Penandatangan 4 Jenjang</span>
+            </h2>
 
-            <div>
-              <label className="font-bold text-text-main block mb-1">
-                Kepala Madrasah Aliyah (MA)
-              </label>
-              <input
-                type="text"
-                value={form.kepalaMA}
-                onChange={(e) => setForm({ ...form, kepalaMA: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
-              />
-            </div>
+            <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="sm:col-span-2">
+                <label className="font-bold text-text-main block mb-1">
+                  Nama Yayasan / Pondok Pesantren
+                </label>
+                <input
+                  type="text"
+                  value={form.namaYayasan}
+                  onChange={(e) => setForm({ ...form, namaYayasan: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
 
-            <div>
-              <label className="font-bold text-text-main block mb-1">
-                Mudir PDF / Diniyah Wustho
-              </label>
-              <input
-                type="text"
-                value={form.mudirWustho}
-                onChange={(e) => setForm({ ...form, mudirWustho: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
-              />
-            </div>
+              <div>
+                <label className="font-bold text-text-main block mb-1">Nama Aplikasi CBT</label>
+                <input
+                  type="text"
+                  value={form.namaAplikasi}
+                  onChange={(e) => setForm({ ...form, namaAplikasi: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main font-bold"
+                />
+              </div>
 
-            <div>
-              <label className="font-bold text-text-main block mb-1">
-                Mudir PDF / Ma&apos;had &apos;Ulya
-              </label>
-              <input
-                type="text"
-                value={form.mudirUlya}
-                onChange={(e) => setForm({ ...form, mudirUlya: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
-              />
-            </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-text-main block mb-1">Tahun Ajaran</label>
+                  <input
+                    type="text"
+                    value={form.tahunAjaran}
+                    onChange={(e) => setForm({ ...form, tahunAjaran: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-text-main block mb-1">Semester</label>
+                  <select
+                    value={form.semester}
+                    onChange={(e) =>
+                      setForm({ ...form, semester: e.target.value as 'Ganjil' | 'Genap' })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                  >
+                    <option value="Ganjil">Ganjil</option>
+                    <option value="Genap">Genap</option>
+                  </select>
+                </div>
+              </div>
 
-            <div className="sm:col-span-2">
-              <label className="font-bold text-text-main block mb-1">
-                Ketua Panitia Ujian Terpadu
-              </label>
-              <input
-                type="text"
-                value={form.ketuaPanitia}
-                onChange={(e) => setForm({ ...form, ketuaPanitia: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
-              />
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Kepala Madrasah Tsanawiyah (MTs)
+                </label>
+                <input
+                  type="text"
+                  value={form.kepalaMTs}
+                  onChange={(e) => setForm({ ...form, kepalaMTs: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Kepala Madrasah Aliyah (MA)
+                </label>
+                <input
+                  type="text"
+                  value={form.kepalaMA}
+                  onChange={(e) => setForm({ ...form, kepalaMA: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Mudir PDF / Diniyah Wustho
+                </label>
+                <input
+                  type="text"
+                  value={form.mudirWustho}
+                  onChange={(e) => setForm({ ...form, mudirWustho: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Mudir PDF / Ma&apos;had &apos;Ulya
+                </label>
+                <input
+                  type="text"
+                  value={form.mudirUlya}
+                  onChange={(e) => setForm({ ...form, mudirUlya: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="font-bold text-text-main block mb-1">
+                  Ketua Panitia Ujian Terpadu
+                </label>
+                <input
+                  type="text"
+                  value={form.ketuaPanitia}
+                  onChange={(e) => setForm({ ...form, ketuaPanitia: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
             </div>
           </div>
         </div>

@@ -11,6 +11,7 @@ import { JENJANG_META } from '../data/initialData';
 import { ScheduleCardGrid } from './jadwal/ScheduleCardGrid';
 import { LiveProctorTable } from './jadwal/LiveProctorTable';
 import { NewScheduleModal } from './jadwal/NewScheduleModal';
+import { publishLiveSyncEvent } from '../utils/liveProctorSync';
 
 interface JadwalLiveViewProps {
   schedules: ExamSchedule[];
@@ -48,8 +49,8 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
   const [waktuSelesai, setWaktuSelesai] = useState('09:00');
   const [durasiMenit, setDurasiMenit] = useState(90);
   const [ruang, setRuang] = useState('Lab CBT Utama — Jabal Nur');
-  const [pengawas, setPengawas] = useState('Ust. Muhammad Zidni Ilman, Lc.');
-  const [totalPeserta] = useState(80);
+  const [pengawas, setPengawas] = useState('Pengawas Ruang CBT');
+  const [totalPeserta] = useState(0);
   const [acakSoal, setAcakSoal] = useState(true);
   const [acakOpsi, setAcakOpsi] = useState(true);
 
@@ -86,9 +87,17 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
   const handleSendBroadcast = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeSchedule) return;
+    const nextAnnouncement = broadcastInput.trim() || undefined;
     onSaveSchedule({
       ...activeSchedule,
-      announcement: broadcastInput.trim() || undefined,
+      announcement: nextAnnouncement,
+    });
+    publishLiveSyncEvent({
+      type: 'PROCTOR_BROADCAST',
+      scheduleId: activeSchedule.id,
+      packetId: activeSchedule.packetId,
+      announcement: nextAnnouncement,
+      timestamp: Date.now(),
     });
     setBroadcastInput('');
   };
@@ -120,24 +129,10 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
       status: 'LIVE',
       acakSoal,
       acakOpsi,
-      totalPeserta: Number(totalPeserta) || 60,
-      hadirCount: Math.max(1, Number(totalPeserta) - 2),
-      selesaiCount: Math.floor(Number(totalPeserta) * 0.4),
-      liveParticipants: [
-        {
-          studentId: `std-${Date.now()}`,
-          studentName: 'Ahmad Zaki Mubarak (Sesi Baru)',
-          nomorPeserta: `26-${chosenPacket.jenjang.toUpperCase()}-001`,
-          kelas: kelasTarget,
-          status: 'MENGERJAKAN',
-          answeredCount: 2,
-          totalQuestions: chosenPacket.questions.length || 4,
-          remainingMinutes: Number(durasiMenit) - 15,
-          violations: 0,
-          ipAddress: '192.168.10.50',
-          lastActivity: 'Baru saja',
-        },
-      ],
+      totalPeserta: Number(totalPeserta) || 0,
+      hadirCount: 0,
+      selesaiCount: 0,
+      liveParticipants: [],
     };
 
     onSaveSchedule(created);
@@ -179,6 +174,17 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
     onSaveSchedule({
       ...activeSchedule,
       liveParticipants: updatedList,
+    });
+
+    publishLiveSyncEvent({
+      type: 'PROCTOR_ACTION',
+      scheduleId: activeSchedule.id,
+      packetId: activeSchedule.packetId,
+      studentId: participant.studentId,
+      nomorPeserta: participant.nomorPeserta,
+      action,
+      addedMinutes: action === 'ADD_TIME' ? 15 : undefined,
+      timestamp: Date.now(),
     });
   };
 
@@ -247,9 +253,16 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
           broadcastInput={broadcastInput}
           onChangeBroadcastInput={setBroadcastInput}
           onSendBroadcast={handleSendBroadcast}
-          onClearBroadcast={() =>
-            onSaveSchedule({ ...activeSchedule, announcement: undefined })
-          }
+          onClearBroadcast={() => {
+            onSaveSchedule({ ...activeSchedule, announcement: undefined });
+            publishLiveSyncEvent({
+              type: 'PROCTOR_BROADCAST',
+              scheduleId: activeSchedule.id,
+              packetId: activeSchedule.packetId,
+              announcement: undefined,
+              timestamp: Date.now(),
+            });
+          }}
           onParticipantAction={handleParticipantAction}
         />
       )}

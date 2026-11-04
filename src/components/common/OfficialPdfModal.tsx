@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -18,6 +18,7 @@ import {
   buildPurePdfBlobFromCanvases,
   OfficialPdfDocType,
   renderKartuPesertaPages,
+  renderLegerNilaiPages,
   renderNaskahSoalPages,
   renderPresensiBeritaAcaraPages,
   renderRekapNilaiPages,
@@ -53,6 +54,11 @@ const DOC_META: Record<
     subtitle: 'Dokumen rekapitulasi skor objektif, esai/tarkib, dan pengesahan Pimpinan Madrasah',
     filenamePrefix: 'Rekap_Nilai_Resmi_CBT',
   },
+  LEGER_NILAI: {
+    title: 'Leger Nilai Kolektif, Peringkat Paralel & Analisis Daya Serap (A4)',
+    subtitle: 'Dokumen pemeringkatan akademik santri/siswa beserta matriks predikat taqdir & daya serap',
+    filenamePrefix: 'Leger_Nilai_Peringkat_CBT',
+  },
   NASKAH_SOAL: {
     title: 'Naskah Soal Ujian & Kunci Jawaban Resmi (A4)',
     subtitle: 'Arsip naskah soal bilingual (Matan Arab RTL & Indonesia) beserta kunci & pembahasan',
@@ -60,14 +66,17 @@ const DOC_META: Record<
   },
 };
 
+const EMPTY_STUDENTS: Student[] = [];
+const EMPTY_SUBMISSIONS: ExamSubmission[] = [];
+
 export const OfficialPdfModal: React.FC<OfficialPdfModalProps> = ({
   isOpen,
   docType,
   onClose,
   settings,
   selectedJenjang,
-  students = [],
-  submissions = [],
+  students = EMPTY_STUDENTS,
+  submissions = EMPTY_SUBMISSIONS,
   packet,
 }) => {
   const [pageCanvases, setPageCanvases] = useState<HTMLCanvasElement[]>([]);
@@ -75,30 +84,69 @@ export const OfficialPdfModal: React.FC<OfficialPdfModalProps> = ({
   const [currentPageIdx, setCurrentPageIdx] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
 
+  const latestPropsRef = useRef({
+    students,
+    submissions,
+    packet,
+    settings,
+    selectedJenjang,
+  });
+  latestPropsRef.current = {
+    students,
+    submissions,
+    packet,
+    settings,
+    selectedJenjang,
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     setIsGenerating(true);
     setCurrentPageIdx(0);
 
     const timer = setTimeout(() => {
-      let rendered: HTMLCanvasElement[] = [];
-      if (docType === 'KARTU_PESERTA') {
-        rendered = renderKartuPesertaPages(students, settings, selectedJenjang);
-      } else if (docType === 'PRESENSI_BERITA_ACARA') {
-        rendered = renderPresensiBeritaAcaraPages(students, settings, selectedJenjang);
-      } else if (docType === 'REKAP_NILAI') {
-        rendered = renderRekapNilaiPages(submissions, settings, selectedJenjang);
-      } else if (docType === 'NASKAH_SOAL' && packet) {
-        rendered = renderNaskahSoalPages(packet, settings);
-      }
+      try {
+        const {
+          students: curStudents,
+          submissions: curSubmissions,
+          packet: curPacket,
+          settings: curSettings,
+          selectedJenjang: curJenjang,
+        } = latestPropsRef.current;
 
-      setPageCanvases(rendered);
-      setPageDataUrls(rendered.map((c) => c.toDataURL('image/jpeg', 0.92)));
-      setIsGenerating(false);
-    }, 60);
+        let rendered: HTMLCanvasElement[] = [];
+        if (docType === 'KARTU_PESERTA') {
+          rendered = renderKartuPesertaPages(curStudents, curSettings, curJenjang);
+        } else if (docType === 'PRESENSI_BERITA_ACARA') {
+          rendered = renderPresensiBeritaAcaraPages(curStudents, curSettings, curJenjang);
+        } else if (docType === 'REKAP_NILAI') {
+          rendered = renderRekapNilaiPages(curSubmissions, curSettings, curJenjang);
+        } else if (docType === 'LEGER_NILAI') {
+          rendered = renderLegerNilaiPages(curSubmissions, curSettings, curJenjang);
+        } else if (docType === 'NASKAH_SOAL' && curPacket) {
+          rendered = renderNaskahSoalPages(curPacket, curSettings);
+        }
+
+        setPageCanvases(rendered);
+        setPageDataUrls(rendered.map((c) => c.toDataURL('image/jpeg', 0.92)));
+      } catch (err) {
+        console.error('Gagal menyusun halaman PDF A4:', err);
+      } finally {
+        setIsGenerating(false);
+      }
+    }, 30);
 
     return () => clearTimeout(timer);
-  }, [isOpen, docType, students, submissions, packet, settings, selectedJenjang]);
+  }, [
+    isOpen,
+    docType,
+    selectedJenjang,
+    students.length,
+    submissions.length,
+    packet?.id,
+    packet?.questions.length,
+    settings.namaYayasan,
+  ]);
 
   if (!isOpen) return null;
 
@@ -119,9 +167,27 @@ export const OfficialPdfModal: React.FC<OfficialPdfModalProps> = ({
 
   const handleIsolatedA4Print = () => {
     if (pageDataUrls.length === 0) return;
-    const printWin = window.open('', '_blank', 'width=980,height=820');
-    if (!printWin) {
-      window.print();
+
+    // Remove any existing hidden print iframe
+    const existingFrame = document.getElementById('jn-cbt-a4-print-frame');
+    if (existingFrame) {
+      existingFrame.remove();
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'jn-cbt-a4-print-frame';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(iframe);
+
+    const frameDoc = iframe.contentWindow?.document;
+    if (!frameDoc) {
+      handleDownloadPurePdf();
       return;
     }
 
@@ -132,7 +198,8 @@ export const OfficialPdfModal: React.FC<OfficialPdfModalProps> = ({
       )
       .join('');
 
-    printWin.document.write(`<!DOCTYPE html>
+    frameDoc.open();
+    frameDoc.write(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -148,7 +215,7 @@ export const OfficialPdfModal: React.FC<OfficialPdfModalProps> = ({
       padding: 0;
     }
     body {
-      background: #e2e8f0;
+      background: #ffffff;
       font-family: sans-serif;
     }
     .a4-page {
@@ -170,30 +237,22 @@ export const OfficialPdfModal: React.FC<OfficialPdfModalProps> = ({
       object-fit: contain;
       display: block;
     }
-    @media screen {
-      body {
-        padding: 20px 0;
-      }
-      .a4-page {
-        margin-bottom: 20px;
-        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.25);
-      }
-    }
   </style>
 </head>
 <body>
   ${imgsHtml}
-  <script>
-    window.onload = function() {
-      setTimeout(function() {
-        window.focus();
-        window.print();
-      }, 250);
-    };
-  </script>
 </body>
 </html>`);
-    printWin.document.close();
+    frameDoc.close();
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch {
+        handleDownloadPurePdf();
+      }
+    }, 300);
   };
 
   return (

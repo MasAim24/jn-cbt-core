@@ -14,9 +14,11 @@ import {
 import {
   Jenjang,
   JenjangFilter,
+  NavTab,
   SchoolSettings,
   Student,
   Teacher,
+  TeacherPeran,
 } from '../types/cbt';
 import { JENJANG_META } from '../data/initialData';
 import { StudentTableTab, TeacherGridTab } from './peserta/StudentTableTab';
@@ -26,6 +28,7 @@ import {
 } from './peserta/ExamCardPrintTab';
 import {
   BulkImportStudentModal,
+  ROLE_DEFAULT_TABS,
   StudentFormModal,
   TeacherFormModal,
 } from './peserta/PesertaModals';
@@ -42,6 +45,8 @@ interface DataPesertaKartuViewProps {
   onRegenerateAllPins?: () => void;
   onDeleteStudent: (id: string) => void;
   onSaveTeacher: (t: Teacher) => void;
+  onDeleteTeacher?: (id: string) => void;
+  onSaveSettings?: (next: SchoolSettings) => void;
 }
 
 export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
@@ -55,6 +60,8 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   onRegenerateAllPins,
   onDeleteStudent,
   onSaveTeacher,
+  onDeleteTeacher,
+  onSaveSettings,
 }) => {
   const [subTab, setSubTab] = useState<'SANTRI' | 'GURU' | 'KARTU' | 'PRESENSI'>('SANTRI');
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,12 +70,15 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   const [showBulkStudentModal, setShowBulkStudentModal] = useState(false);
   const [bulkStudentText, setBulkStudentText] = useState('');
   const [showAddTeacher, setShowAddTeacher] = useState(false);
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   const [pdfDocType, setPdfDocType] = useState<'KARTU_PESERTA' | 'PRESENSI_BERITA_ACARA' | null>(
     null
   );
 
   // Student form state
   const [nama, setNama] = useState('');
+  const [nomorPeserta, setNomorPeserta] = useState('');
+  const [pin, setPin] = useState('');
   const [nisn, setNisn] = useState('');
   const [jenjang, setJenjang] = useState<Jenjang>('MTs');
   const [kelas, setKelas] = useState('VIII-A');
@@ -76,15 +86,19 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   const [sesi, setSesi] = useState<'Sesi 1 (Pagi)' | 'Sesi 2 (Siang)'>('Sesi 1 (Pagi)');
   const [gender, setGender] = useState<'L' | 'P'>('L');
 
-  // Teacher form state
+  // Teacher / Staff Account form state
   const [tNama, setTNama] = useState('');
-  const [tGelar, setTGelar] = useState('S.Pd.I');
-  const [tNip] = useState('');
+  const [tGelar, setTGelar] = useState('');
+  const [tNip, setTNip] = useState('');
+  const [tUsername, setTUsername] = useState('');
+  const [tPassword, setTPassword] = useState('guru123');
+  const [tNoHp, setTNoHp] = useState('');
   const [tMapel, setTMapel] = useState('');
-  const [tJenjang, setTJenjang] = useState<Jenjang>('MTs');
-  const [tPeran, setTPeran] = useState<
-    'Guru Mapel' | 'Pengawas CBT' | 'Koordinator Kurikulum'
-  >('Guru Mapel');
+  const [tKelasBinaan, setTKelasBinaan] = useState('');
+  const [tJenjangList, setTJenjangList] = useState<Jenjang[]>(['MTs']);
+  const [tPeran, setTPeran] = useState<TeacherPeran>('Guru Mapel');
+  const [tHakAkses, setTHakAkses] = useState<NavTab[]>(ROLE_DEFAULT_TABS['Guru Mapel']);
+  const [syncToSchoolSettings, setSyncToSchoolSettings] = useState(true);
 
   const filteredStudents = students.filter((s) => {
     const matchJenjang = selectedJenjang === 'ALL' ? true : s.jenjang === selectedJenjang;
@@ -104,13 +118,18 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
     const matchSearch =
       !searchQuery.trim() ||
       t.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.mapelAmpu.toLowerCase().includes(searchQuery.toLowerCase());
+      t.mapelAmpu.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (t.username || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.peran.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (t.kelasBinaan || '').toLowerCase().includes(searchQuery.toLowerCase());
     return matchJenjang && matchSearch;
   });
 
   const openAddStudentModal = () => {
     setEditingStudent(null);
     setNama('');
+    setNomorPeserta('');
+    setPin('');
     setNisn('');
     setJenjang(selectedJenjang === 'ALL' ? 'MTs' : selectedJenjang);
     setKelas('VIII-A');
@@ -123,6 +142,8 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   const openEditStudentModal = (s: Student) => {
     setEditingStudent(s);
     setNama(s.nama);
+    setNomorPeserta(s.nomorPeserta);
+    setPin(s.pin);
     setNisn(s.nisn);
     setJenjang(s.jenjang);
     setKelas(s.kelas);
@@ -139,6 +160,8 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
       onSaveStudent({
         ...editingStudent,
         nama: nama.trim(),
+        nomorPeserta: nomorPeserta.trim() || editingStudent.nomorPeserta,
+        pin: pin.trim() || editingStudent.pin,
         nisn: nisn.trim() || editingStudent.nisn,
         jenjang,
         kelas,
@@ -148,10 +171,10 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
       });
     } else {
       const seq = String(students.length + 1).padStart(3, '0');
-      const randPin = String(Math.floor(100000 + Math.random() * 900000));
+      const randPin = pin.trim() || String(Math.floor(100000 + Math.random() * 900000));
       const created: Student = {
         id: `std-${Date.now()}`,
-        nomorPeserta: `26-${jenjang.toUpperCase()}-${seq}`,
+        nomorPeserta: nomorPeserta.trim() || `26-${jenjang.toUpperCase()}-${seq}`,
         nisn: nisn.trim() || `0098412${seq}`,
         nama: nama.trim(),
         jenjang,
@@ -178,8 +201,8 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
 
     const newList: Student[] = lines.map((line, idx) => {
       const parts = line.split('|').map((p) => p.trim());
-      const sNama = parts[0] || `Santri Import #${idx + 1}`;
-      const rawJ = parts[1] || 'MTs';
+      const sNama = parts[0] || `Santri #${idx + 1}`;
+      const rawJ = parts[1] || (selectedJenjang === 'ALL' ? 'MTs' : selectedJenjang);
       const sJenjang: Jenjang = (['MTs', 'MA', 'Wustho', 'Ulya'] as const).includes(
         rawJ as Jenjang
       )
@@ -187,7 +210,15 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
         : 'MTs';
       const sKelas = parts[2] || 'VIII-A';
       const sRuang = parts[3] || 'Lab CBT 1';
-      const sNisn = parts[4] || `0098765${String(idx + 10).padStart(3, '0')}`;
+      const sNisn = parts[4] || `0098765${String(students.length + idx + 1).padStart(3, '0')}`;
+      const rawGender = (parts[5] || 'L').toUpperCase();
+      const sGender: 'L' | 'P' = rawGender === 'P' ? 'P' : 'L';
+      const rawSesi = parts[6] || 'Sesi 1 (Pagi)';
+      const sSesi: 'Sesi 1 (Pagi)' | 'Sesi 2 (Siang)' = rawSesi
+        .toLowerCase()
+        .includes('siang')
+        ? 'Sesi 2 (Siang)'
+        : 'Sesi 1 (Pagi)';
       const seq = String(students.length + idx + 1).padStart(3, '0');
 
       return {
@@ -198,9 +229,9 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
         jenjang: sJenjang,
         kelas: sKelas,
         ruang: sRuang,
-        sesi: 'Sesi 1 (Pagi)',
+        sesi: sSesi,
         pin: String(Math.floor(100000 + Math.random() * 900000)),
-        gender: 'L',
+        gender: sGender,
         statusAktif: true,
       };
     });
@@ -214,23 +245,109 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
     setShowBulkStudentModal(false);
   };
 
-  const handleCreateTeacher = (e: React.FormEvent) => {
+  const openAddTeacherModal = (presetRole?: TeacherPeran) => {
+    const role = presetRole || 'Guru Mapel';
+    const defaultJenjang: Jenjang = selectedJenjang === 'ALL' ? 'MTs' : selectedJenjang;
+    setEditingTeacher(null);
+    setTNama('');
+    setTGelar('');
+    setTNip('');
+    setTUsername('');
+    setTPassword('guru123');
+    setTNoHp('');
+    setTMapel(
+      role === 'Kepala Madrasah / Mudir'
+        ? `Kepala ${JENJANG_META[defaultJenjang].fullLabel}`
+        : role === 'Wali Kelas'
+        ? 'Wali Kelas / Pembina Rombel'
+        : ''
+    );
+    setTKelasBinaan(role === 'Wali Kelas' ? 'VIII-A' : '');
+    setTJenjangList([defaultJenjang]);
+    setTPeran(role);
+    setTHakAkses(ROLE_DEFAULT_TABS[role]);
+    setSyncToSchoolSettings(true);
+    setShowAddTeacher(true);
+  };
+
+  const openEditTeacherModal = (t: Teacher) => {
+    setEditingTeacher(t);
+    setTNama(t.nama);
+    setTGelar(t.gelar);
+    setTNip(t.nip);
+    setTUsername(t.username || t.nip);
+    setTPassword(t.password || 'guru123');
+    setTNoHp(t.noHp);
+    setTMapel(t.mapelAmpu);
+    setTKelasBinaan(t.kelasBinaan || '');
+    setTJenjangList(t.jenjangAmpu.length > 0 ? t.jenjangAmpu : ['MTs']);
+    setTPeran(t.peran);
+    setTHakAkses(
+      t.hakAkses && t.hakAkses.length > 0 ? t.hakAkses : ROLE_DEFAULT_TABS[t.peran]
+    );
+    setSyncToSchoolSettings(false);
+    setShowAddTeacher(true);
+  };
+
+  const handleCreateOrUpdateTeacher = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tNama.trim()) return;
-    const created: Teacher = {
-      id: `tch-${Date.now()}`,
-      nip: tNip.trim() || `1989010120200110${teachers.length + 1}`,
+
+    const cleanNip = tNip.trim() || `1989010120200110${teachers.length + 1}`;
+    const cleanUsername =
+      tUsername.trim() ||
+      tNama
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .slice(0, 12) ||
+      cleanNip;
+
+    const savedTeacher: Teacher = {
+      id: editingTeacher ? editingTeacher.id : `tch-${Date.now()}`,
+      nip: cleanNip,
+      username: cleanUsername,
+      password: tPassword.trim() || 'guru123',
       nama: tNama.trim(),
       gelar: tGelar.trim(),
-      mapelAmpu: tMapel.trim() || 'Studi Keislaman & Kitab',
-      jenjangAmpu: [tJenjang],
+      mapelAmpu: tMapel.trim() || tPeran,
+      kelasBinaan: tKelasBinaan.trim() || undefined,
+      jenjangAmpu: tJenjangList.length > 0 ? tJenjangList : ['MTs'],
       peran: tPeran,
-      noHp: '0812-8899-0011',
+      hakAkses: tHakAkses.length > 0 ? tHakAkses : ROLE_DEFAULT_TABS[tPeran],
+      noHp: tNoHp.trim() || '-',
+      statusAktif: true,
     };
-    onSaveTeacher(created);
+
+    onSaveTeacher(savedTeacher);
+
+    // Sync Kepala Madrasah / Mudir into SchoolSettings if requested
+    if (
+      tPeran === 'Kepala Madrasah / Mudir' &&
+      syncToSchoolSettings &&
+      onSaveSettings
+    ) {
+      const fullTitleName = savedTeacher.gelar
+        ? `${savedTeacher.nama}, ${savedTeacher.gelar}`
+        : savedTeacher.nama;
+      const nextSettings: SchoolSettings = { ...settings };
+      if (savedTeacher.jenjangAmpu.includes('MTs')) {
+        nextSettings.kepalaMTs = fullTitleName;
+      }
+      if (savedTeacher.jenjangAmpu.includes('MA')) {
+        nextSettings.kepalaMA = fullTitleName;
+      }
+      if (savedTeacher.jenjangAmpu.includes('Wustho')) {
+        nextSettings.mudirWustho = fullTitleName;
+      }
+      if (savedTeacher.jenjangAmpu.includes('Ulya')) {
+        nextSettings.mudirUlya = fullTitleName;
+      }
+      onSaveSettings(nextSettings);
+    }
+
     setShowAddTeacher(false);
-    setTNama('');
-    setTMapel('');
+    setEditingTeacher(null);
   };
 
   return (
@@ -239,11 +356,11 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
       <div className="no-print flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-elevated p-5 rounded-[24px] shadow-card border border-border-subtle/60">
         <div>
           <h1 className="text-xl font-extrabold text-text-main">
-            Data Santri, Guru &amp; Administrasi Cetak Ujian
+            Database Santri Real, Akun Pejabat/Guru &amp; Cetak Kartu CBT
           </h1>
           <p className="text-xs text-text-muted mt-0.5">
-            Kelola peserta ujian lintas marhalah (MTs, Aliyah, Wustho, &apos;Ulya), cetak Kartu PIN
-            Peserta, dan Daftar Hadir Ruang.
+            Input database santri real di lapangan serta kelola akun Kepala Madrasah/Diniyah, Wali
+            Kelas, dan Guru Mapel beserta hak akses loginnya.
           </p>
         </div>
 
@@ -257,7 +374,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
             }`}
           >
             <Users className="w-3.5 h-3.5" />
-            <span>Data Santri ({filteredStudents.length})</span>
+            <span>Database Santri Real ({filteredStudents.length})</span>
           </button>
 
           <button
@@ -269,7 +386,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <span>Dewan Guru/Asatidz ({filteredTeachers.length})</span>
+            <span>Akun Pejabat, Wali Kelas &amp; Guru ({filteredTeachers.length})</span>
           </button>
 
           <button
@@ -321,7 +438,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama, nomor, kelas, ruang..."
+              placeholder="Cari nama, username, kelas, ruang..."
               className="bg-transparent text-text-main focus:outline-none w-48"
             />
           </div>
@@ -338,7 +455,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
                 <FileDown className="w-3.5 h-3.5" />
                 <span>PDF Kartu ({filteredStudents.length})</span>
               </button>
-              {onRegenerateAllPins && (
+              {onRegenerateAllPins && students.length > 0 && (
                 <button
                   onClick={onRegenerateAllPins}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-[#B85D19] text-xs font-extrabold transition"
@@ -350,32 +467,30 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
               )}
               <button
                 onClick={() => {
-                  setBulkStudentText(
-                    'Ahmad Baihaqi | MTs | VIII-A | Lab CBT 1 | 0098412090\nSiti Nadia Zahra | MA | XII MAK-1 | Lab CBT 2 | 0071928399\nM. Ulil Albab | Wustho | II Wustho A | Lab Turats 1 | 3120098450'
-                  );
+                  setBulkStudentText('');
                   setShowBulkStudentModal(true);
                 }}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#087963] text-xs font-extrabold transition"
               >
                 <FileUp className="w-3.5 h-3.5" />
-                <span>Import Kolektif</span>
+                <span>Import CSV / Kolektif</span>
               </button>
               <button
                 onClick={openAddStudentModal}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] text-white text-xs font-extrabold"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] text-white text-xs font-extrabold shadow-sm"
               >
                 <Plus className="w-4 h-4" />
-                <span>Tambah Santri/Siswa</span>
+                <span>Input Santri Baru</span>
               </button>
             </>
           )}
           {subTab === 'GURU' && (
             <button
-              onClick={() => setShowAddTeacher(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] text-white text-xs font-extrabold"
+              onClick={() => openAddTeacherModal('Guru Mapel')}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] text-white text-xs font-extrabold shadow-sm"
             >
               <Plus className="w-4 h-4" />
-              <span>Tambah Guru/Pengawas</span>
+              <span>Tambah Akun Pejabat / Guru</span>
             </button>
           )}
           {(subTab === 'KARTU' || subTab === 'PRESENSI') && (
@@ -397,13 +512,30 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
           students={filteredStudents}
           onEditStudent={openEditStudentModal}
           onDeleteStudent={onDeleteStudent}
+          onAddFirstStudent={openAddStudentModal}
+          onOpenBulkImport={() => {
+            setBulkStudentText('');
+            setShowBulkStudentModal(true);
+          }}
         />
       )}
 
-      {subTab === 'GURU' && <TeacherGridTab teachers={filteredTeachers} />}
+      {subTab === 'GURU' && (
+        <TeacherGridTab
+          teachers={filteredTeachers}
+          settings={settings}
+          onEditTeacher={openEditTeacherModal}
+          onDeleteTeacher={onDeleteTeacher}
+          onQuickAddRole={(role) => openAddTeacherModal(role)}
+        />
+      )}
 
       {subTab === 'KARTU' && (
-        <ExamCardPrintTab students={filteredStudents} settings={settings} />
+        <ExamCardPrintTab
+          students={filteredStudents}
+          settings={settings}
+          onOpenPdfKartu={() => setPdfDocType('KARTU_PESERTA')}
+        />
       )}
 
       {subTab === 'PRESENSI' && (
@@ -428,6 +560,10 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
           editingStudent={editingStudent}
           nama={nama}
           setNama={setNama}
+          nomorPeserta={nomorPeserta}
+          setNomorPeserta={setNomorPeserta}
+          pin={pin}
+          setPin={setPin}
           jenjang={jenjang}
           setJenjang={setJenjang}
           nisn={nisn}
@@ -447,17 +583,32 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
 
       {showAddTeacher && (
         <TeacherFormModal
+          editingTeacher={editingTeacher}
           tNama={tNama}
           setTNama={setTNama}
           tGelar={tGelar}
           setTGelar={setTGelar}
+          tNip={tNip}
+          setTNip={setTNip}
+          tUsername={tUsername}
+          setTUsername={setTUsername}
+          tPassword={tPassword}
+          setTPassword={setTPassword}
+          tNoHp={tNoHp}
+          setTNoHp={setTNoHp}
           tMapel={tMapel}
           setTMapel={setTMapel}
-          tJenjang={tJenjang}
-          setTJenjang={setTJenjang}
+          tKelasBinaan={tKelasBinaan}
+          setTKelasBinaan={setTKelasBinaan}
+          tJenjangList={tJenjangList}
+          setTJenjangList={setTJenjangList}
           tPeran={tPeran}
           setTPeran={setTPeran}
-          onSubmit={handleCreateTeacher}
+          tHakAkses={tHakAkses}
+          setTHakAkses={setTHakAkses}
+          syncToSchoolSettings={syncToSchoolSettings}
+          setSyncToSchoolSettings={setSyncToSchoolSettings}
+          onSubmit={handleCreateOrUpdateTeacher}
           onClose={() => setShowAddTeacher(false)}
         />
       )}

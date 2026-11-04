@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
-import { ExamPacket, Jenjang, Question } from '../../types/cbt';
+import { Download, FileSpreadsheet, FileJson, Upload, X } from 'lucide-react';
+import { ExamPacket, Jenjang, Question, QuestionType } from '../../types/cbt';
 import { JENJANG_META } from '../../data/initialData';
 
 interface NewPacketModalProps {
@@ -192,6 +192,30 @@ interface BulkImportQuestionModalProps {
   onImportQuestions: (imported: Question[]) => void;
 }
 
+function parseCsvRow(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
 export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = ({
   isOpen,
   activePacket,
@@ -200,9 +224,12 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
   onClose,
   onImportQuestions,
 }) => {
+  const [importTab, setImportTab] = useState<'PASTE' | 'FILE_EXPORT'>('PASTE');
+  const [fileFeedback, setFileFeedback] = useState<string>('');
+
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmitPaste = (e: React.FormEvent) => {
     e.preventDefault();
     if (!bulkText.trim()) return;
 
@@ -245,13 +272,267 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
     onClose();
   };
 
+  const handleDownloadCsvTemplate = () => {
+    const headers = [
+      'Tipe (PG/PG_KOMPLEKS/BENAR_SALAH/ESAI)',
+      'Pertanyaan_Indonesia',
+      'Matan_Arab_RTL',
+      'Referensi_Kitab',
+      'Opsi_A',
+      'Opsi_B',
+      'Opsi_C',
+      'Opsi_D',
+      'Opsi_E',
+      'Kunci_Jawaban',
+      'Bobot',
+      'Pembahasan_Atau_Rubrik',
+    ];
+    const sampleRows = [
+      [
+        'PG',
+        '"Apa hukum melaksanakan shalat berjamaah lima waktu menurut jumhur ulama Syafi’iyyah?"',
+        '"صَلَاةُ الْجَمَاعَةِ فَرْضُ كِفَايَةٍ"',
+        '"Fathul Qarib Bab Shalat Jamaah"',
+        '"Fardhu Kifayah bagi laki-laki mukim"',
+        '"Sunnah Ghairu Muakkadah"',
+        '"Fardhu Ain tanpa terkecuali"',
+        '"Mubah"',
+        '""',
+        'A',
+        '25',
+        '"Menurut pendapat ashah dalam mazhab Syafi’i, shalat berjamaah hukumnya Fardhu Kifayah."',
+      ],
+      [
+        'BENAR_SALAH',
+        '"Lafaz الْكَلَامُ dalam Matan Jurumiyah disyaratkan harus murakkab (tersusun) dan mufid (berfaedah)."',
+        '"الْكَلَامُ هُوَ اللَّفْظُ الْمُرَكَّبُ الْمُفِيدُ بِالْوَضْعِ"',
+        '"Matan Al-Ajurrumiyah Bab Kalam"',
+        '""',
+        '""',
+        '""',
+        '""',
+        '""',
+        'BENAR',
+        '20',
+        '"Empat rukun kalam menurut ulama Nahwu: Lafaz, Murakkab, Mufid, dan Bil Wadh’i."',
+      ],
+    ];
+    const csv = '\uFEFF' + [headers.join(','), ...sampleRows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Template_Bank_Soal_${activePacket.code}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPacketCsv = () => {
+    const headers = [
+      'Tipe',
+      'Pertanyaan_Indonesia',
+      'Matan_Arab_RTL',
+      'Referensi_Kitab',
+      'Opsi_A',
+      'Opsi_B',
+      'Opsi_C',
+      'Opsi_D',
+      'Opsi_E',
+      'Kunci_Jawaban',
+      'Bobot',
+      'Pembahasan_Atau_Rubrik',
+    ];
+    const esc = (v?: string) => `"${(v || '').replace(/"/g, '""')}"`;
+    const rows = activePacket.questions.map((q) => {
+      const optMap: Record<string, string> = {};
+      q.options?.forEach((o) => {
+        optMap[o.label] = o.text;
+      });
+      const keyStr =
+        q.type === 'PG'
+          ? q.correctAnswer || 'A'
+          : q.type === 'PG_KOMPLEKS'
+          ? (q.correctAnswers || ['A', 'B']).join(';')
+          : q.type === 'BENAR_SALAH'
+          ? q.correctBoolean
+            ? 'BENAR'
+            : 'SALAH'
+          : q.essayRubric || '';
+
+      return [
+        q.type,
+        esc(q.prompt),
+        esc(q.arabicPrompt),
+        esc(q.kitabReference),
+        esc(optMap['A']),
+        esc(optMap['B']),
+        esc(optMap['C']),
+        esc(optMap['D']),
+        esc(optMap['E']),
+        esc(keyStr),
+        String(q.weight),
+        esc(q.pembahasan || q.essayRubric),
+      ];
+    });
+    const csv = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Export_Soal_${activePacket.code}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPacketJson = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      packetCode: activePacket.code,
+      packetTitle: activePacket.title,
+      jenjang: activePacket.jenjang,
+      mapel: activePacket.mapel,
+      questions: activePacket.questions,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Export_Paket_${activePacket.code}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFileUploadImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = String(reader.result || '').replace(/^\uFEFF/, '');
+      try {
+        if (file.name.endsWith('.json')) {
+          const parsed = JSON.parse(content);
+          const list: Question[] = Array.isArray(parsed)
+            ? parsed
+            : Array.isArray(parsed.questions)
+            ? parsed.questions
+            : [];
+          if (list.length === 0) {
+            setFileFeedback('File JSON tidak berisi daftar questions yang valid.');
+            return;
+          }
+          const normalized = list.map((q, idx) => ({
+            ...q,
+            id: `q-json-${Date.now()}-${idx}`,
+            nomor: activePacket.questions.length + idx + 1,
+          }));
+          onImportQuestions(normalized);
+          setFileFeedback(`Berhasil mengimpor ${normalized.length} butir soal dari JSON!`);
+          setTimeout(() => onClose(), 800);
+          return;
+        }
+
+        // Otherwise parse as CSV
+        const lines = content
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (lines.length < 2) {
+          setFileFeedback('File CSV kosong atau tidak memiliki baris data.');
+          return;
+        }
+        const dataLines = lines.slice(1);
+        const imported: Question[] = dataLines.map((line, idx) => {
+          const cols = parseCsvRow(line);
+          const rawType = (cols[0] || 'PG').toUpperCase();
+          const type: QuestionType = (
+            ['PG', 'PG_KOMPLEKS', 'BENAR_SALAH', 'ESAI'].includes(rawType) ? rawType : 'PG'
+          ) as QuestionType;
+          const prompt = cols[1] || `Soal CSV #${idx + 1}`;
+          const arabicPrompt = cols[2] || undefined;
+          const kitabReference = cols[3] || undefined;
+          const optA = cols[4] || 'Pilihan A';
+          const optB = cols[5] || 'Pilihan B';
+          const optC = cols[6] || 'Pilihan C';
+          const optD = cols[7] || 'Pilihan D';
+          const optE = cols[8] || 'Pilihan E';
+          const keyRaw = (cols[9] || 'A').trim();
+          const weight = Number(cols[10]) || 20;
+          const pembahasan = cols[11] || undefined;
+
+          const options =
+            type === 'PG' || type === 'PG_KOMPLEKS'
+              ? [
+                  { label: 'A' as const, text: optA },
+                  { label: 'B' as const, text: optB },
+                  { label: 'C' as const, text: optC },
+                  { label: 'D' as const, text: optD },
+                  ...(activePacket.optionCount === 5
+                    ? [{ label: 'E' as const, text: optE }]
+                    : []),
+                ]
+              : undefined;
+
+          return {
+            id: `q-csv-${Date.now()}-${idx}`,
+            nomor: activePacket.questions.length + idx + 1,
+            type,
+            prompt,
+            arabicPrompt,
+            kitabReference,
+            isRtl: Boolean(arabicPrompt),
+            options,
+            correctAnswer:
+              type === 'PG'
+                ? ((['A', 'B', 'C', 'D', 'E'].includes(keyRaw.toUpperCase())
+                    ? keyRaw.toUpperCase()
+                    : 'A') as 'A' | 'B' | 'C' | 'D' | 'E')
+                : undefined,
+            correctAnswers:
+              type === 'PG_KOMPLEKS'
+                ? (keyRaw
+                    .toUpperCase()
+                    .split(/[;,]/)
+                    .map((s) => s.trim())
+                    .filter((s) => ['A', 'B', 'C', 'D', 'E'].includes(s)) as (
+                    | 'A'
+                    | 'B'
+                    | 'C'
+                    | 'D'
+                    | 'E'
+                  )[])
+                : undefined,
+            correctBoolean:
+              type === 'BENAR_SALAH'
+                ? !['SALAH', 'FALSE', 'KHATHA'].includes(keyRaw.toUpperCase())
+                : undefined,
+            essayRubric: type === 'ESAI' ? pembahasan || keyRaw : undefined,
+            weight,
+            pembahasan,
+          };
+        });
+
+        onImportQuestions(imported);
+        setFileFeedback(`Berhasil mengimpor ${imported.length} soal dari CSV!`);
+        setTimeout(() => onClose(), 800);
+      } catch {
+        setFileFeedback('Gagal memproses file. Pastikan format CSV atau JSON sesuai template.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-elevated rounded-[26px] max-w-2xl w-full p-6 shadow-floating border border-border-subtle space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-extrabold text-text-main">
-            Import Soal Cepat (Copy-Paste Multi-Baris)
-          </h3>
+          <div>
+            <h3 className="text-lg font-extrabold text-text-main">
+              Import &amp; Export Kolektif Bank Soal ({activePacket.code})
+            </h3>
+            <p className="text-xs text-text-muted">
+              Mendukung Copy-Paste Cepat, Upload CSV/JSON, serta Export Paket Soal
+            </p>
+          </div>
           <button
             onClick={onClose}
             className="p-1.5 rounded-xl hover:bg-surface text-text-muted"
@@ -259,42 +540,144 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
             <X className="w-5 h-5" />
           </button>
         </div>
-        <p className="text-xs text-text-muted leading-relaxed">
-          Tempelkan daftar soal (1 baris = 1 soal Pilihan Ganda) dengan pemisah tanda{' '}
-          <code className="px-1.5 py-0.5 rounded bg-surface font-mono font-bold text-text-main">
-            |
-          </code>{' '}
-          berikut:
-          <br />
-          <strong className="text-text-main font-mono text-[11px]">
-            Pertanyaan | Teks Arab (kosongkan jika tidak ada) | Opsi A | Opsi B | Opsi C | Opsi D |
-            Kunci (A/B/C/D)
-          </strong>
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-3 text-xs">
-          <textarea
-            rows={6}
-            required
-            value={bulkText}
-            onChange={(e) => onChangeBulkText(e.target.value)}
-            className="w-full p-3.5 rounded-2xl bg-surface border border-border-subtle text-text-main font-mono text-xs"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-surface text-text-muted font-bold"
-            >
-              Batal
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2 rounded-xl bg-[#211955] text-white font-extrabold"
-            >
-              Import ke Paket Ini
-            </button>
+
+        {/* Mode Switcher Tabs */}
+        <div className="flex items-center gap-2 bg-surface p-1.5 rounded-2xl border border-border-subtle text-xs">
+          <button
+            type="button"
+            onClick={() => setImportTab('PASTE')}
+            className={`flex-1 py-2 px-3 rounded-xl font-extrabold transition ${
+              importTab === 'PASTE'
+                ? 'bg-[#211955] text-white shadow-sm'
+                : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            1. Copy-Paste Cepat (Baris | Pipe)
+          </button>
+          <button
+            type="button"
+            onClick={() => setImportTab('FILE_EXPORT')}
+            className={`flex-1 py-2 px-3 rounded-xl font-extrabold transition ${
+              importTab === 'FILE_EXPORT'
+                ? 'bg-[#211955] text-white shadow-sm'
+                : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            2. Upload File CSV/JSON &amp; Export Paket
+          </button>
+        </div>
+
+        {importTab === 'PASTE' ? (
+          <>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Tempelkan daftar soal (1 baris = 1 soal Pilihan Ganda) dengan pemisah tanda{' '}
+              <code className="px-1.5 py-0.5 rounded bg-surface font-mono font-bold text-text-main">
+                |
+              </code>{' '}
+              berikut:
+              <br />
+              <strong className="text-text-main font-mono text-[11px]">
+                Pertanyaan | Teks Arab (kosongkan jika tidak ada) | Opsi A | Opsi B | Opsi C | Opsi
+                D | Kunci (A/B/C/D)
+              </strong>
+            </p>
+            <form onSubmit={handleSubmitPaste} className="space-y-3 text-xs">
+              <textarea
+                rows={6}
+                required
+                value={bulkText}
+                onChange={(e) => onChangeBulkText(e.target.value)}
+                className="w-full p-3.5 rounded-2xl bg-surface border border-border-subtle text-text-main font-mono text-xs"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-xl bg-surface text-text-muted font-bold"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#211955] text-white font-extrabold"
+                >
+                  Import ke Paket Ini
+                </button>
+              </div>
+            </form>
+          </>
+        ) : (
+          <div className="space-y-4 text-xs">
+            {/* Upload Box */}
+            <div className="rounded-2xl border-2 border-dashed border-border-subtle bg-surface/60 p-5 text-center space-y-2.5">
+              <Upload className="w-8 h-8 text-[#211955] mx-auto" />
+              <div className="font-extrabold text-text-main text-sm">
+                Upload File Bank Soal (.CSV atau .JSON)
+              </div>
+              <p className="text-text-muted max-w-md mx-auto">
+                Mendukung seluruh tipe soal (PG, PG Kompleks, Benar/Salah, dan Esai/Tarkib) beserta
+                teks Arab RTL dan kunci jawaban.
+              </p>
+              <div className="pt-1 flex flex-wrap items-center justify-center gap-2">
+                <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white font-extrabold cursor-pointer shadow-sm transition">
+                  <Upload className="w-4 h-4" />
+                  <span>Pilih File CSV / JSON</span>
+                  <input
+                    type="file"
+                    accept=".csv,.json"
+                    onChange={handleFileUploadImport}
+                    className="hidden"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadCsvTemplate}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-elevated hover:bg-indigo-50 text-text-main border border-border-subtle font-extrabold transition"
+                >
+                  <Download className="w-4 h-4 text-[#087963]" />
+                  <span>Unduh Template CSV Resmi</span>
+                </button>
+              </div>
+
+              {fileFeedback && (
+                <div className="mt-2 px-3 py-2 rounded-xl bg-teal-50 text-[#087963] font-extrabold">
+                  {fileFeedback}
+                </div>
+              )}
+            </div>
+
+            {/* Export Current Packet Box */}
+            <div className="rounded-2xl bg-surface p-4 border border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="font-extrabold text-text-main">
+                  Export Paket Soal Ini ({activePacket.questions.length} Butir Soal)
+                </div>
+                <div className="text-text-muted text-[11px]">
+                  Simpan cadangan atau bagikan paket soal ini ke pengampu madrasah lain.
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleExportPacketCsv}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#14B894] hover:bg-[#0b987c] text-white font-extrabold transition"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Export CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPacketJson}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F8B478] hover:bg-[#f3a35c] text-[#1E1645] font-extrabold transition"
+                >
+                  <FileJson className="w-4 h-4" />
+                  <span>Export JSON</span>
+                </button>
+              </div>
+            </div>
           </div>
-        </form>
+        )}
       </div>
     </div>
   );

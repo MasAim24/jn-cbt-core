@@ -25,6 +25,7 @@ import {
   ProctorTokenIllustration,
 } from './illustrations/HeroIllustrations';
 import { DashboardBottomSection } from './dashboard/DashboardBottomSection';
+import { AuthenticatedSession } from './auth/LoginPortalView';
 
 interface DashboardViewProps {
   selectedJenjang: JenjangFilter;
@@ -37,6 +38,7 @@ interface DashboardViewProps {
   submissions: ExamSubmission[];
   onRefreshToken: (scheduleId: string) => void;
   onOpenShowcase?: () => void;
+  authSession?: AuthenticatedSession | null;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -50,6 +52,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   submissions,
   onRefreshToken,
   onOpenShowcase,
+  authSession,
 }) => {
   const [copiedToken, setCopiedToken] = useState(false);
   const [statPeriod, setStatPeriod] = useState<'Hari Ini' | 'Minggu Ini' | 'Semester Ganjil'>(
@@ -66,6 +69,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setCopiedToken(true);
     setTimeout(() => setCopiedToken(false), 1800);
   };
+
+  const mtsCount = students.filter((s) => s.jenjang === 'MTs').length;
+  const maCount = students.filter((s) => s.jenjang === 'MA').length;
+  const wusthoCount = students.filter((s) => s.jenjang === 'Wustho').length;
+  const ulyaCount = students.filter((s) => s.jenjang === 'Ulya').length;
 
   const jenjangCards: {
     jenjang: Jenjang;
@@ -84,10 +92,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     {
       jenjang: 'MTs',
       title: 'Tsanawiyah (MTs)',
-      subtitle: 'Lebih dari 140 peserta aktif',
-      countLabel: '142 santri',
-      totalCount: 142,
-      maxCap: 165,
+      subtitle: mtsCount > 0 ? `${mtsCount} peserta terdaftar` : 'Siap input santri MTs',
+      countLabel: `${mtsCount} santri`,
+      totalCount: mtsCount,
+      maxCap: Math.max(100, mtsCount + 20),
       iconBg: '#EAE6FF',
       iconColor: '#211955',
       labelColorClass: 'text-[#211955] dark:text-indigo-300',
@@ -98,10 +106,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     {
       jenjang: 'MA',
       title: 'Aliyah (MA)',
-      subtitle: 'Lebih dari 110 peserta aktif',
-      countLabel: '118 santri',
-      totalCount: 118,
-      maxCap: 145,
+      subtitle: maCount > 0 ? `${maCount} peserta terdaftar` : 'Siap input santri MA',
+      countLabel: `${maCount} santri`,
+      totalCount: maCount,
+      maxCap: Math.max(100, maCount + 20),
       iconBg: '#FFF4D6',
       iconColor: '#D97706',
       labelColorClass: 'text-[#D97706] dark:text-amber-300',
@@ -112,10 +120,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     {
       jenjang: 'Wustho',
       title: 'Diniyah Wustho',
-      subtitle: 'Takhassus Jurumiyah & Fiqih',
-      countLabel: '96 santri',
-      totalCount: 96,
-      maxCap: 120,
+      subtitle: wusthoCount > 0 ? `${wusthoCount} peserta terdaftar` : 'Takhassus Jurumiyah & Fiqih',
+      countLabel: `${wusthoCount} santri`,
+      totalCount: wusthoCount,
+      maxCap: Math.max(100, wusthoCount + 20),
       iconBg: '#E0F8F5',
       iconColor: '#087963',
       labelColorClass: 'text-[#087963] dark:text-teal-300',
@@ -126,10 +134,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     {
       jenjang: 'Ulya',
       title: "Ma'had 'Ulya",
-      subtitle: 'Alfiyah & Bahtsul Masail',
-      countLabel: '64 santri',
-      totalCount: 64,
-      maxCap: 80,
+      subtitle: ulyaCount > 0 ? `${ulyaCount} peserta terdaftar` : 'Alfiyah & Bahtsul Masail',
+      countLabel: `${ulyaCount} santri`,
+      totalCount: ulyaCount,
+      maxCap: Math.max(100, ulyaCount + 20),
       iconBg: '#FFE8E5',
       iconColor: '#D93834',
       labelColorClass: 'text-[#D93834] dark:text-rose-300',
@@ -143,7 +151,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const averageScore =
     submissions.length > 0
       ? (submissions.reduce((acc, s) => acc + s.totalScore, 0) / submissions.length).toFixed(1)
-      : '95.2';
+      : '0.0';
 
   const totalScheduledParticipants = schedules.reduce((acc, s) => acc + s.totalPeserta, 0);
   const totalHadirParticipants = schedules.reduce((acc, s) => acc + s.hadirCount, 0);
@@ -166,7 +174,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span>JN ExamCBTCore • TP 2026/2027</span>
             </div>
             <h1 className="text-2xl sm:text-[26px] font-extrabold tracking-tight text-[#1E1645] leading-tight">
-              Assalamu&apos;alaikum, Ust. Ahmad!
+              Assalamu&apos;alaikum, {authSession?.name || 'Administrator CBT'}!
             </h1>
             <p className="text-xs sm:text-[13px] font-medium text-[#372963]/90 leading-relaxed">
               Kelola ujian berbasis komputer (CBT) dan imtihan kitab untuk tingkat{' '}

@@ -1,27 +1,33 @@
 import React, { useState } from 'react';
 import {
+  Award,
   BarChart3,
   CheckCircle2,
   Edit3,
   FileSpreadsheet,
+  ListChecks,
   Printer,
   Search,
 } from 'lucide-react';
 import {
+  ExamPacket,
   ExamSubmission,
   JenjangFilter,
   SchoolSettings,
 } from '../types/cbt';
-import { JENJANG_META } from '../data/initialData';
+import { INITIAL_PACKETS, JENJANG_META } from '../data/initialData';
 import {
   EssayGradingModal,
   RekapAnalysisGrid,
 } from './rekap/RekapSubComponents';
+import { ItemAnalysisSection } from './rekap/ItemAnalysisSection';
 import { CornerTableSticker } from './common/CornerStickerBadge';
 import { OfficialPdfModal } from './common/OfficialPdfModal';
+import { OfficialPdfDocType } from '../utils/purePdfEngine';
 
 interface RekapNilaiViewProps {
   submissions: ExamSubmission[];
+  packets?: ExamPacket[];
   settings: SchoolSettings;
   selectedJenjang: JenjangFilter;
   onSelectJenjang: (j: JenjangFilter) => void;
@@ -30,6 +36,7 @@ interface RekapNilaiViewProps {
 
 export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
   submissions,
+  packets = INITIAL_PACKETS,
   settings,
   selectedJenjang,
   onSelectJenjang,
@@ -41,8 +48,8 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
     'ALL'
   );
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'TABEL' | 'ANALISIS'>('TABEL');
-  const [showPdfModal, setShowPdfModal] = useState(false);
+  const [viewMode, setViewMode] = useState<'TABEL' | 'ANALISIS' | 'BUTIR_SOAL'>('TABEL');
+  const [pdfModalDocType, setPdfModalDocType] = useState<OfficialPdfDocType | null>(null);
 
   const baseByJenjang = submissions.filter((s) =>
     selectedJenjang === 'ALL' ? true : s.jenjang === selectedJenjang
@@ -160,27 +167,64 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setViewMode(viewMode === 'TABEL' ? 'ANALISIS' : 'TABEL')}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface hover:bg-indigo-50 text-text-main border border-border-subtle text-xs font-extrabold transition"
-          >
-            <BarChart3 className="w-4 h-4 text-[var(--brand-text-accent)]" />
-            <span>{viewMode === 'TABEL' ? 'Analisis Statistik' : 'Tabel Nilai'}</span>
-          </button>
-          <button
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#14B894] hover:bg-[#0b987c] text-white text-xs font-extrabold transition shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#14B894] hover:bg-[#0b987c] text-white text-xs font-extrabold transition shadow-sm"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>Export Excel / CSV</span>
+            <span>Export CSV</span>
           </button>
           <button
-            onClick={() => setShowPdfModal(true)}
+            onClick={() => setPdfModalDocType('LEGER_NILAI')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F8B478] hover:bg-[#f3a35c] text-[#1E1645] text-xs font-extrabold transition shadow-sm"
+          >
+            <Award className="w-4 h-4" />
+            <span>Cetak Leger &amp; Peringkat (PDF A4)</span>
+          </button>
+          <button
+            onClick={() => setPdfModalDocType('REKAP_NILAI')}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold transition shadow-sm"
           >
             <Printer className="w-4 h-4" />
-            <span>Output PDF Murni &amp; Cetak Rekap</span>
+            <span>Cetak Rekap Nilai (PDF A4)</span>
           </button>
         </div>
+      </div>
+
+      {/* Mode Switcher Bar: Tabel Nilai vs Daya Serap vs Analisis Butir Soal */}
+      <div className="no-print flex flex-wrap items-center gap-2 bg-elevated p-2 rounded-2xl shadow-card border border-border-subtle/60 text-xs">
+        <button
+          onClick={() => setViewMode('TABEL')}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-extrabold transition ${
+            viewMode === 'TABEL'
+              ? 'bg-[#211955] text-white shadow-sm'
+              : 'text-text-muted hover:text-text-main'
+          }`}
+        >
+          <Edit3 className="w-3.5 h-3.5" />
+          <span>1. Tabel Nilai &amp; Koreksi Esai</span>
+        </button>
+        <button
+          onClick={() => setViewMode('ANALISIS')}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-extrabold transition ${
+            viewMode === 'ANALISIS'
+              ? 'bg-[#211955] text-white shadow-sm'
+              : 'text-text-muted hover:text-text-main'
+          }`}
+        >
+          <BarChart3 className="w-3.5 h-3.5" />
+          <span>2. Analisis Daya Serap Marhalah</span>
+        </button>
+        <button
+          onClick={() => setViewMode('BUTIR_SOAL')}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-extrabold transition ${
+            viewMode === 'BUTIR_SOAL'
+              ? 'bg-[#211955] text-white shadow-sm'
+              : 'text-text-muted hover:text-text-main'
+          }`}
+        >
+          <ListChecks className="w-3.5 h-3.5" />
+          <span>3. Analisis Butir Soal (Indeks P, Daya Pembeda D &amp; Pengecoh)</span>
+        </button>
       </div>
 
       {/* 4 Summary Metric Cards */}
@@ -276,6 +320,14 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
       </div>
 
       {viewMode === 'ANALISIS' && <RekapAnalysisGrid submissions={submissions} />}
+
+      {viewMode === 'BUTIR_SOAL' && (
+        <ItemAnalysisSection
+          packets={packets}
+          submissions={submissions}
+          selectedJenjang={selectedJenjang}
+        />
+      )}
 
       {/* Main Gradebook Table */}
       <div className="relative overflow-hidden rounded-[26px] bg-elevated p-6 shadow-card border border-border-subtle/60 overflow-x-auto">
@@ -396,9 +448,9 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
       )}
 
       <OfficialPdfModal
-        isOpen={showPdfModal}
-        onClose={() => setShowPdfModal(false)}
-        docType="REKAP_NILAI"
+        isOpen={Boolean(pdfModalDocType)}
+        onClose={() => setPdfModalDocType(null)}
+        docType={pdfModalDocType || 'REKAP_NILAI'}
         settings={settings}
         selectedJenjang={selectedJenjang}
         submissions={filtered}

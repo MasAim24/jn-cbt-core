@@ -1,6 +1,7 @@
 import React from 'react';
-import { CheckCircle2, Edit3, Trash2 } from 'lucide-react';
+import { CheckCircle2, Edit3, Headphones, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { Question } from '../../types/cbt';
+import { QuestionMediaAttachment } from '../common/QuestionMediaAttachment';
 
 interface QuestionCardItemProps {
   question: Question;
@@ -37,6 +38,18 @@ export const QuestionCardItem: React.FC<QuestionCardItemProps> = ({
               📚 {q.kitabReference}
             </span>
           )}
+          {q.mediaImageUrl && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 text-[#211955] text-[11px] font-bold">
+              <ImageIcon className="w-3 h-3" />
+              <span>Bergambar</span>
+            </span>
+          )}
+          {q.mediaAudioUrl && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 text-[#087963] text-[11px] font-bold">
+              <Headphones className="w-3 h-3" />
+              <span>Audio Istima’</span>
+            </span>
+          )}
         </div>
 
         <div className="no-print flex items-center gap-1.5 shrink-0">
@@ -66,6 +79,14 @@ export const QuestionCardItem: React.FC<QuestionCardItemProps> = ({
           {q.arabicPrompt}
         </div>
       )}
+
+      {/* Image / Diagram / Audio Attachment if present */}
+      <QuestionMediaAttachment
+        mediaImageUrl={q.mediaImageUrl}
+        mediaAudioUrl={q.mediaAudioUrl}
+        mediaCaption={q.mediaCaption}
+        compact
+      />
 
       {/* Indonesian Question Prompt */}
       <p className="text-sm font-semibold text-text-main leading-relaxed">{q.prompt}</p>

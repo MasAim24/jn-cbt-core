@@ -33,16 +33,33 @@ import {
   AuthenticatedSession,
   LoginPortalView,
 } from './components/auth/LoginPortalView';
+import { subscribeLiveSyncEvents } from './utils/liveProctorSync';
 
 const STORAGE_KEYS = {
-  PACKETS: 'jn_cbt_packets_v2',
-  SCHEDULES: 'jn_cbt_schedules_v2',
-  STUDENTS: 'jn_cbt_students_v2',
-  TEACHERS: 'jn_cbt_teachers_v2',
-  SUBMISSIONS: 'jn_cbt_submissions_v2',
-  SETTINGS: 'jn_cbt_settings_v2',
-  THEME: 'jn_cbt_theme_v2',
-  AUTH_SESSION: 'jn_cbt_auth_session_v2',
+  PACKETS: 'jn_cbt_packets_v3',
+  SCHEDULES: 'jn_cbt_schedules_v3',
+  STUDENTS: 'jn_cbt_students_v3',
+  TEACHERS: 'jn_cbt_teachers_v3',
+  SUBMISSIONS: 'jn_cbt_submissions_v3',
+  SETTINGS: 'jn_cbt_settings_v3',
+  THEME: 'jn_cbt_theme_v3',
+  AUTH_SESSION: 'jn_cbt_auth_session_v3',
+};
+
+const DEFAULT_MASTER_ADMIN_SESSION: AuthenticatedSession = {
+  role: 'admin',
+  id: 'adm-master',
+  name: 'Administrator Utama CBT',
+  badgeRole: 'Master Administrator CBT',
+  avatarInitials: 'AD',
+  allowedTabs: [
+    'dashboard',
+    'bank-soal',
+    'jadwal-live',
+    'peserta-kartu',
+    'rekap-nilai',
+    'pengaturan',
+  ],
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -57,7 +74,10 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 
 export function App() {
   const [authSession, setAuthSession] = useState<AuthenticatedSession | null>(() =>
-    loadFromStorage<AuthenticatedSession | null>(STORAGE_KEYS.AUTH_SESSION, null)
+    loadFromStorage<AuthenticatedSession | null>(
+      STORAGE_KEYS.AUTH_SESSION,
+      DEFAULT_MASTER_ADMIN_SESSION
+    )
   );
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [selectedJenjang, setSelectedJenjang] = useState<JenjangFilter>('ALL');
@@ -145,6 +165,88 @@ export function App() {
     }
   }, [darkMode]);
 
+  // Auto-open Student Exam Portal if launched via "?sim_student=1&packetId=..." dual-tab button
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('sim_student') === '1') {
+      const targetPktId = params.get('packetId') || packets[0]?.id;
+      if (!authSession) {
+        setAuthSession({
+          role: 'siswa',
+          id: 'std-dual-tab',
+          name: 'Santri Simulasi Dual-Tab',
+          badgeRole: 'Peserta Ujian CBT (Live Sync)',
+          avatarInitials: 'SS',
+          packetId: targetPktId,
+        });
+      }
+      setStudentSimPacketId(targetPktId);
+      setUserRole('siswa');
+    }
+  }, []);
+
+  // Real-time Cross-Tab BroadcastChannel & Storage Synchronization
+  useEffect(() => {
+    const unsubscribeSync = subscribeLiveSyncEvents((msg) => {
+      if (msg.type === 'STUDENT_PROGRESS' || msg.type === 'STUDENT_SUBMITTED') {
+        setSchedules((prev) =>
+          prev.map((sch) => {
+            if (sch.id !== msg.scheduleId && sch.packetId !== msg.packetId) {
+              return sch;
+            }
+            const exists = sch.liveParticipants.some(
+              (p) =>
+                p.studentId === msg.participant.studentId ||
+                p.nomorPeserta === msg.participant.nomorPeserta
+            );
+            const updatedList = exists
+              ? sch.liveParticipants.map((p) =>
+                  p.studentId === msg.participant.studentId ||
+                  p.nomorPeserta === msg.participant.nomorPeserta
+                    ? msg.participant
+                    : p
+                )
+              : [msg.participant, ...sch.liveParticipants];
+            const selesaiCount = updatedList.filter((p) => p.status === 'SELESAI').length;
+            return {
+              ...sch,
+              selesaiCount: Math.max(sch.selesaiCount, selesaiCount),
+              liveParticipants: updatedList,
+            };
+          })
+        );
+      }
+
+      if (msg.type === 'STUDENT_SUBMITTED') {
+        setSubmissions((prev) => {
+          const exists = prev.some((s) => s.id === msg.submission.id);
+          return exists ? prev : [msg.submission, ...prev];
+        });
+      }
+    });
+
+    const handleCrossTabStorage = (ev: StorageEvent) => {
+      if (!ev.newValue) return;
+      try {
+        if (ev.key === STORAGE_KEYS.PACKETS) {
+          setPackets(JSON.parse(ev.newValue));
+        } else if (ev.key === STORAGE_KEYS.SCHEDULES) {
+          setSchedules(JSON.parse(ev.newValue));
+        } else if (ev.key === STORAGE_KEYS.SUBMISSIONS) {
+          setSubmissions(JSON.parse(ev.newValue));
+        }
+      } catch {
+        // Ignore parse error
+      }
+    };
+
+    window.addEventListener('storage', handleCrossTabStorage);
+    return () => {
+      unsubscribeSync();
+      window.removeEventListener('storage', handleCrossTabStorage);
+    };
+  }, []);
+
   // Handlers
   const handleSavePacket = (pkt: ExamPacket) => {
     setPackets((prev) => {
@@ -203,7 +305,14 @@ export function App() {
   };
 
   const handleSaveTeacher = (tch: Teacher) => {
-    setTeachers((prev) => [tch, ...prev]);
+    setTeachers((prev) => {
+      const exists = prev.some((item) => item.id === tch.id);
+      return exists ? prev.map((item) => (item.id === tch.id ? tch : item)) : [tch, ...prev];
+    });
+  };
+
+  const handleDeleteTeacher = (id: string) => {
+    setTeachers((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleUpdateSubmission = (sub: ExamSubmission) => {
@@ -225,8 +334,13 @@ export function App() {
       setStudentSimPacketId(session.packetId);
       setStudentSimStudentId(session.studentId);
     } else if (session.role === 'guru') {
-      setActiveTab('bank-soal');
+      if (session.jenjang) {
+        setSelectedJenjang(session.jenjang);
+      }
+      const firstAllowed = session.allowedTabs?.[0] || 'dashboard';
+      setActiveTab(firstAllowed);
     } else {
+      setSelectedJenjang('ALL');
       setActiveTab('dashboard');
     }
   };
@@ -312,6 +426,7 @@ export function App() {
         <FloatingSidebar
           activeTab={activeTab}
           userRole={userRole}
+          allowedTabs={authSession.allowedTabs}
           onSelectTab={setActiveTab}
           onSetUserRole={setUserRole}
           onOpenStudentSim={() => handleOpenStudentSim()}
@@ -343,6 +458,7 @@ export function App() {
                 packets={packets}
                 schedules={schedules}
                 students={students}
+                settings={currentSettings}
                 initialPacketId={studentSimPacketId}
                 initialStudentId={studentSimStudentId}
                 onExitPortal={() => {
@@ -369,6 +485,7 @@ export function App() {
                     submissions={submissions}
                     onRefreshToken={handleRefreshToken}
                     onOpenShowcase={() => setShowMotionShowcase(true)}
+                    authSession={authSession}
                   />
                 )}
 
@@ -409,12 +526,15 @@ export function App() {
                     onRegenerateAllPins={handleRegenerateAllPins}
                     onDeleteStudent={handleDeleteStudent}
                     onSaveTeacher={handleSaveTeacher}
+                    onDeleteTeacher={handleDeleteTeacher}
+                    onSaveSettings={(next) => setSettings([next])}
                   />
                 )}
 
                 {activeTab === 'rekap-nilai' && (
                   <RekapNilaiView
                     submissions={submissions}
+                    packets={packets}
                     settings={currentSettings}
                     selectedJenjang={selectedJenjang}
                     onSelectJenjang={setSelectedJenjang}
@@ -425,7 +545,17 @@ export function App() {
                 {activeTab === 'pengaturan' && (
                   <PengaturanView
                     settings={currentSettings}
-                    onSaveSettings={(next) => setSettings([next])}
+                    students={students}
+                    teachers={teachers}
+                    onNavigateTab={setActiveTab}
+                    onSaveSettings={(next) => {
+                      setSettings([next]);
+                      if (authSession?.role === 'admin' && next.adminName) {
+                        setAuthSession((prev) =>
+                          prev ? { ...prev, name: next.adminName || prev.name } : prev
+                        );
+                      }
+                    }}
                     onResetDemoData={handleResetDemoData}
                     onExportFullBackup={handleExportFullBackup}
                     onImportFullBackup={handleImportFullBackup}

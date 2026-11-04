@@ -20,6 +20,9 @@ export interface Question {
   arabicPrompt?: string;
   kitabReference?: string; // e.g. "Matan Al-Ajurrumiyah Bab I'rab" or "Fathul Mu'in Juz 1"
   isRtl?: boolean;
+  mediaImageUrl?: string; // Base64 DataURL, SVG DataURL, or external image URL
+  mediaAudioUrl?: string; // Base64 audio DataURL, external audio URL, or 'SYNTH_ISTIMA_...' preset
+  mediaCaption?: string; // Caption for image/audio attachment
   options?: QuestionOption[];
   correctAnswer?: 'A' | 'B' | 'C' | 'D' | 'E'; // For PG
   correctAnswers?: ('A' | 'B' | 'C' | 'D' | 'E')[]; // For PG_KOMPLEKS
@@ -98,15 +101,35 @@ export interface Student {
   statusAktif: boolean;
 }
 
+export type TeacherPeran =
+  | 'Kepala Madrasah / Mudir'
+  | 'Wali Kelas'
+  | 'Guru Mapel'
+  | 'Pengawas CBT'
+  | 'Koordinator Kurikulum';
+
+export type NavTab =
+  | 'dashboard'
+  | 'bank-soal'
+  | 'jadwal-live'
+  | 'peserta-kartu'
+  | 'rekap-nilai'
+  | 'pengaturan';
+
 export interface Teacher {
   id: string;
   nip: string;
+  username: string;
+  password: string;
   nama: string;
   gelar: string;
   mapelAmpu: string;
+  kelasBinaan?: string;
   jenjangAmpu: Jenjang[];
-  peran: 'Guru Mapel' | 'Pengawas CBT' | 'Koordinator Kurikulum';
+  peran: TeacherPeran;
+  hakAkses: NavTab[];
   noHp: string;
+  statusAktif?: boolean;
 }
 
 export interface ExamSubmission {
@@ -131,6 +154,7 @@ export interface ExamSubmission {
   violations: number;
   essayAnswerSample?: string;
   essayQuestionPrompt?: string;
+  itemResponses?: Record<string, string>; // Question ID -> Student's selected option/answer
 }
 
 export interface SchoolSettings {
@@ -145,6 +169,9 @@ export interface SchoolSettings {
   mudirWustho: string;
   mudirUlya: string;
   ketuaPanitia: string;
+  adminName?: string;
+  adminUsername?: string;
+  adminPassword?: string;
   antiCheatFullscreen: boolean;
   antiCheatBlockTabSwitch: boolean;
   maxViolationsAllowed: number;
@@ -153,11 +180,3 @@ export interface SchoolSettings {
   supabaseAnonKey: string;
   syncMode: 'LOCAL_STORAGE' | 'SUPABASE_HYBRID';
 }
-
-export type NavTab =
-  | 'dashboard'
-  | 'bank-soal'
-  | 'jadwal-live'
-  | 'peserta-kartu'
-  | 'rekap-nilai'
-  | 'pengaturan';

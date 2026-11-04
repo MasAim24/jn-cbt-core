@@ -96,7 +96,8 @@ export const PortalLobbyScreen: React.FC<PortalLobbyScreenProps> = ({
             <span>Peserta Terverifikasi Otomatis (Mode Demo):</span>
           </div>
           <div className="text-base font-extrabold text-text-main">
-            {matchingStudent?.nama} ({matchingStudent?.nomorPeserta})
+            {matchingStudent?.nama || 'Santri Simulasi CBT'} (
+            {matchingStudent?.nomorPeserta || `26-${activePacket.jenjang.toUpperCase()}-SIM`})
           </div>
           <div className="text-text-muted">
             Jenjang {JENJANG_META[activePacket.jenjang].fullLabel} • Kelas {activePacket.kelas} •

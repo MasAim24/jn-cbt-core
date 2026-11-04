@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import {
   Jenjang,
+  JurusanMA,
   NavTab,
   Student,
   Teacher,
@@ -381,10 +382,55 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
                 required
                 value={kelas}
                 onChange={(e) => setKelas(e.target.value)}
-                placeholder="Contoh: VIII-A / XII MAK-1 / II Wustho"
+                placeholder="Contoh: VIII-A / XI MIPA / XII IPS"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
               />
             </div>
+            {jenjang === 'MA' ? (
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Jurusan Peminatan MA (MIPA / IPS)
+                </label>
+                <select
+                  value={
+                    kelas.toUpperCase().includes('MIPA') || kelas.toUpperCase().includes('IPA')
+                      ? 'MIPA'
+                      : kelas.toUpperCase().includes('IPS')
+                      ? 'IPS'
+                      : ''
+                  }
+                  onChange={(e) => {
+                    const nextJ = e.target.value as JurusanMA;
+                    const base =
+                      kelas
+                        .replace(/\b(MIPA|IPA|IPS)\b/gi, '')
+                        .replace(/[-_]+$/g, '')
+                        .trim() || 'XI';
+                    setKelas(nextJ ? `${base} ${nextJ}` : base);
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main font-bold"
+                >
+                  <option value="">— Belum Ditentukan (Pilih MIPA / IPS) —</option>
+                  <option value="MIPA">MIPA (Sains / IPA)</option>
+                  <option value="IPS">IPS (Sosial)</option>
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label className="font-bold text-text-main block mb-1">Ruang Lab CBT</label>
+                <input
+                  type="text"
+                  required
+                  value={ruang}
+                  onChange={(e) => setRuang(e.target.value)}
+                  placeholder="Contoh: Lab CBT 1"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
+            )}
+          </div>
+
+          {jenjang === 'MA' && (
             <div>
               <label className="font-bold text-text-main block mb-1">Ruang Lab CBT</label>
               <input
@@ -396,7 +442,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
                 className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
               />
             </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

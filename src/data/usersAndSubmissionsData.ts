@@ -1,8 +1,8 @@
 import { ExamSubmission, Student, Teacher } from '../types/cbt';
+import { MA_RDM_REAL_STUDENTS } from './maRealStudents';
 
-// Database santri, guru/pejabat, dan rekap nilai dikosongkan secara default.
-// Seluruh data real di lapangan diinput langsung melalui Akun Administrator Utama.
-export const INITIAL_STUDENTS: Student[] = [];
+// Database santri real terisi dengan 147 santri MA (Kelas XI & XII) dari Rapor Digital Madrasah (RDM).
+export const INITIAL_STUDENTS: Student[] = MA_RDM_REAL_STUDENTS;
 
 export const INITIAL_TEACHERS: Teacher[] = [];
 

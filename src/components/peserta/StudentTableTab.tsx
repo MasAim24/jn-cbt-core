@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react';
 import {
+  JurusanMA,
   NavTab,
   SchoolSettings,
   Student,
@@ -34,14 +35,29 @@ const TAB_LABELS: Record<NavTab, string> = {
 interface StudentTableTabProps {
   students: Student[];
   onEditStudent: (s: Student) => void;
+  onQuickUpdateStudent?: (s: Student) => void;
   onDeleteStudent: (id: string) => void;
   onAddFirstStudent?: () => void;
   onOpenBulkImport?: () => void;
 }
 
+function resolveStudentJurusanMA(s: Student): JurusanMA {
+  if (s.jurusan === 'MIPA' || s.jurusan === 'IPS') return s.jurusan;
+  const upper = (s.kelas || '').toUpperCase();
+  if (upper.includes('MIPA') || upper.includes('IPA')) return 'MIPA';
+  if (upper.includes('IPS')) return 'IPS';
+  return '';
+}
+
+function buildUpdatedKelasMA(currentKelas: string, nextJurusan: JurusanMA): string {
+  const base = currentKelas.replace(/\b(MIPA|IPA|IPS)\b/gi, '').replace(/[-_]+$/g, '').trim() || 'XI';
+  return nextJurusan ? `${base} ${nextJurusan}` : base;
+}
+
 export const StudentTableTab: React.FC<StudentTableTabProps> = ({
   students,
   onEditStudent,
+  onQuickUpdateStudent,
   onDeleteStudent,
   onAddFirstStudent,
   onOpenBulkImport,
@@ -104,6 +120,7 @@ export const StudentTableTab: React.FC<StudentTableTabProps> = ({
             <th className="py-3 px-3">Nama Lengkap Santri/Siswa</th>
             <th className="py-3 px-3">Jenjang</th>
             <th className="py-3 px-3">Kelas / Marhalah</th>
+            <th className="py-3 px-3">Jurusan (Khusus MA)</th>
             <th className="py-3 px-3">Ruang &amp; Sesi</th>
             <th className="py-3 px-3">PIN Login</th>
             <th className="py-3 px-3 text-right">Aksi</th>
@@ -112,6 +129,7 @@ export const StudentTableTab: React.FC<StudentTableTabProps> = ({
         <tbody className="divide-y divide-border-subtle/60">
           {students.map((s) => {
             const meta = JENJANG_META[s.jenjang];
+            const currentJurusan = s.jenjang === 'MA' ? resolveStudentJurusanMA(s) : '';
             return (
               <tr key={s.id} className="hover:bg-surface/60 transition">
                 <td className="py-3.5 px-3 font-mono font-bold text-[var(--brand-text-accent)] whitespace-nowrap">
@@ -123,6 +141,9 @@ export const StudentTableTab: React.FC<StudentTableTabProps> = ({
                   </div>
                   <div className="text-[11px] text-text-muted whitespace-nowrap">
                     NISN/NISM: {s.nisn} • {s.gender === 'L' ? 'Putra (L)' : 'Putri (P)'}
+                    {s.tempatLahir || s.tanggalLahir
+                      ? ` • TTL: ${s.tempatLahir || '-'}${s.tanggalLahir ? `, ${s.tanggalLahir}` : ''}`
+                      : ''}
                   </div>
                 </td>
                 <td className="py-3.5 px-3 whitespace-nowrap">
@@ -135,6 +156,36 @@ export const StudentTableTab: React.FC<StudentTableTabProps> = ({
                 </td>
                 <td className="py-3.5 px-3 font-bold text-text-main whitespace-nowrap">
                   {s.kelas}
+                </td>
+                <td className="py-3.5 px-3 whitespace-nowrap">
+                  {s.jenjang === 'MA' ? (
+                    <select
+                      value={currentJurusan}
+                      onChange={(e) => {
+                        const nextJurusan = e.target.value as JurusanMA;
+                        const nextKelas = buildUpdatedKelasMA(s.kelas, nextJurusan);
+                        onQuickUpdateStudent?.({
+                          ...s,
+                          jurusan: nextJurusan,
+                          kelas: nextKelas,
+                        });
+                      }}
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold border transition cursor-pointer focus:outline-none ${
+                        currentJurusan === 'MIPA'
+                          ? 'bg-emerald-50 text-[#087963] border-emerald-200 dark:bg-emerald-950/60 dark:border-emerald-800'
+                          : currentJurusan === 'IPS'
+                          ? 'bg-indigo-50 text-[#211955] border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-200 dark:border-indigo-800'
+                          : 'bg-amber-50/80 text-[#B85D19] border-amber-200 dark:bg-amber-950/50 dark:border-amber-800'
+                      }`}
+                      title="Pilih Jurusan Peminatan Santri MA (Otomatis tersimpan ke Supabase)"
+                    >
+                      <option value="">— Pilih MIPA / IPS —</option>
+                      <option value="MIPA">MIPA (Sains / IPA)</option>
+                      <option value="IPS">IPS (Sosial)</option>
+                    </select>
+                  ) : (
+                    <span className="text-[11px] text-text-muted">—</span>
+                  )}
                 </td>
                 <td className="py-3.5 px-3 text-text-muted whitespace-nowrap">
                   {s.ruang} • {s.sesi}

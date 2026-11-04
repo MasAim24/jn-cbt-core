@@ -14,6 +14,7 @@ import {
 import {
   Jenjang,
   JenjangFilter,
+  JurusanMA,
   NavTab,
   SchoolSettings,
   Student,
@@ -74,6 +75,9 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
     authSession.peran === 'Kepala Madrasah / Mudir' ||
     authSession.peran === 'Koordinator Kurikulum';
   const [searchQuery, setSearchQuery] = useState('');
+  const [maFilter, setMaFilter] = useState<'ALL' | 'XI' | 'XII' | 'MIPA' | 'IPS' | 'UNSET'>(
+    'ALL'
+  );
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [showBulkStudentModal, setShowBulkStudentModal] = useState(false);
@@ -117,14 +121,39 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
       scopeToKelasBinaan
         ? s.kelas.toLowerCase().includes(authSession.kelasBinaan.toLowerCase())
         : true;
+    const resolvedJurusan: JurusanMA =
+      s.jurusan ||
+      (s.kelas.toUpperCase().includes('MIPA') || s.kelas.toUpperCase().includes('IPA')
+        ? 'MIPA'
+        : s.kelas.toUpperCase().includes('IPS')
+        ? 'IPS'
+        : '');
+    const upperKelas = s.kelas.toUpperCase();
+    const isKelasXII = /\bXII\b/.test(upperKelas);
+    const isKelasXI = /\bXI\b/.test(upperKelas) && !isKelasXII;
+
+    const matchMaFilter =
+      maFilter === 'ALL' || s.jenjang !== 'MA'
+        ? true
+        : maFilter === 'XI'
+        ? isKelasXI
+        : maFilter === 'XII'
+        ? isKelasXII
+        : maFilter === 'MIPA'
+        ? resolvedJurusan === 'MIPA'
+        : maFilter === 'IPS'
+        ? resolvedJurusan === 'IPS'
+        : resolvedJurusan === '';
+
     const matchSearch =
       !searchQuery.trim() ||
       s.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.nomorPeserta.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.nisn.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.kelas.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.tempatLahir || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.ruang.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchJenjang && matchWaliKelas && matchSearch;
+    return matchJenjang && matchWaliKelas && matchMaFilter && matchSearch;
   });
 
   const filteredTeachers = teachers.filter((t) => {
@@ -171,6 +200,14 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   const handleCreateOrUpdateStudent = (e: React.FormEvent) => {
     e.preventDefault();
     if (!nama.trim()) return;
+    const derivedJurusan: JurusanMA | undefined =
+      jenjang === 'MA'
+        ? kelas.toUpperCase().includes('MIPA') || kelas.toUpperCase().includes('IPA')
+          ? 'MIPA'
+          : kelas.toUpperCase().includes('IPS')
+          ? 'IPS'
+          : ''
+        : undefined;
     if (editingStudent) {
       onSaveStudent({
         ...editingStudent,
@@ -180,6 +217,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
         nisn: nisn.trim() || editingStudent.nisn,
         jenjang,
         kelas,
+        jurusan: derivedJurusan,
         ruang,
         sesi,
         gender,
@@ -194,6 +232,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
         nama: nama.trim(),
         jenjang,
         kelas,
+        jurusan: derivedJurusan,
         ruang,
         sesi,
         pin: randPin,
@@ -494,10 +533,26 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama, username, kelas, ruang..."
-              className="bg-transparent text-text-main focus:outline-none w-48"
+              placeholder="Cari nama, NISN, kelas, tempat lahir..."
+              className="bg-transparent text-text-main focus:outline-none w-52"
             />
           </div>
+
+          {subTab !== 'GURU' && (selectedJenjang === 'ALL' || selectedJenjang === 'MA') && (
+            <select
+              value={maFilter}
+              onChange={(e) => setMaFilter(e.target.value as any)}
+              className="px-3 py-1.5 rounded-xl bg-elevated border border-border-subtle text-xs font-extrabold text-text-main focus:outline-none"
+              title="Filter Kelas & Jurusan Peminatan MA (XI / XII / MIPA / IPS)"
+            >
+              <option value="ALL">Filter MA: Semua Kelas &amp; Jurusan</option>
+              <option value="XI">Khusus Kelas XI MA (63 Santri)</option>
+              <option value="XII">Khusus Kelas XII MA (84 Santri)</option>
+              <option value="MIPA">Jurusan MIPA (Sains / IPA)</option>
+              <option value="IPS">Jurusan IPS (Sosial)</option>
+              <option value="UNSET">Belum Pilih Jurusan (MIPA/IPS)</option>
+            </select>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -567,6 +622,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
         <StudentTableTab
           students={filteredStudents}
           onEditStudent={openEditStudentModal}
+          onQuickUpdateStudent={onSaveStudent}
           onDeleteStudent={onDeleteStudent}
           onAddFirstStudent={openAddStudentModal}
           onOpenBulkImport={() => {

@@ -256,8 +256,11 @@ export function App() {
 
             if (pendingNow.students_json) {
               setStudents(pendingNow.students_json);
-            } else if (Array.isArray(cloudLoaded.students)) {
+            } else if (Array.isArray(cloudLoaded.students) && cloudLoaded.students.length > 0) {
               setStudents(cloudLoaded.students);
+            } else if (INITIAL_STUDENTS.length > 0) {
+              setStudents(INITIAL_STUDENTS);
+              await patchMasterColumnInSupabase({ students_json: INITIAL_STUDENTS }, supaCfg);
             }
 
             if (pendingNow.teachers_json) {

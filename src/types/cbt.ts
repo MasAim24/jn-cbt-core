@@ -87,6 +87,8 @@ export interface ExamSchedule {
   liveParticipants: LiveParticipant[];
 }
 
+export type JurusanMA = 'MIPA' | 'IPS' | '';
+
 export interface Student {
   id: string;
   nomorPeserta: string;
@@ -94,6 +96,9 @@ export interface Student {
   nama: string;
   jenjang: Jenjang;
   kelas: string;
+  jurusan?: JurusanMA;
+  tempatLahir?: string;
+  tanggalLahir?: string;
   ruang: string;
   sesi: 'Sesi 1 (Pagi)' | 'Sesi 2 (Siang)';
   pin: string;

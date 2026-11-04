@@ -61,8 +61,12 @@ export const FloatingSidebar: React.FC<FloatingSidebarProps> = ({
         title="Beranda Utama JN ExamCBTCore"
         className="group cursor-pointer flex lg:flex-col items-center justify-center gap-2 lg:gap-1.5 lg:w-full select-none shrink-0 focus:outline-none"
       >
-        <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-white text-[#211955] flex items-center justify-center font-black text-xs shadow-sm optical-circle-overshoot transition-transform group-hover:scale-105">
-          JN
+        <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-white text-[#211955] flex items-center justify-center font-black text-xs shadow-sm optical-circle-overshoot transition-transform group-hover:scale-105 overflow-hidden p-0.5">
+          <img
+            src="/logo-jabalnur.png"
+            alt="Logo Pondok Pesantren Jabal Nur"
+            className="w-full h-full object-contain rounded-full"
+          />
         </div>
         <span className="hidden sm:block text-[9px] font-extrabold tracking-[0.15em] uppercase text-indigo-100 leading-none">
           CBTCORE

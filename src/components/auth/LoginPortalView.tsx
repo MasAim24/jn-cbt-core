@@ -115,24 +115,56 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
       return;
     }
 
+    const cleanToken = tokenRuang.trim().toUpperCase();
+    if (!cleanToken) {
+      setErrorMsg('Masukkan Token Ruang 6 digit yang diberikan oleh Pengawas Ruang.');
+      return;
+    }
+
     const validSchedule = schedules.find(
-      (sch) => sch.token.toUpperCase() === tokenRuang.trim().toUpperCase()
+      (sch) => sch.token.toUpperCase() === cleanToken
     );
-    const targetPacket =
-      packets.find((p) => p.id === validSchedule?.packetId) ||
-      packets.find((p) => p.jenjang === matchedStudent.jenjang) ||
-      packets[0];
+    if (!validSchedule) {
+      setErrorMsg(
+        'Token Ruang tidak valid atau sudah berganti. Silakan minta Token Ruang terbaru kepada Pengawas Ruang.'
+      );
+      return;
+    }
+
+    if (validSchedule.jenjang !== matchedStudent.jenjang) {
+      setErrorMsg(
+        `Token Ruang ini diperuntukkan bagi unit ${JENJANG_META[validSchedule.jenjang].fullLabel}, sedangkan akun Anda terdaftar di unit ${JENJANG_META[matchedStudent.jenjang].fullLabel}.`
+      );
+      return;
+    }
+
+    if (validSchedule.status !== 'LIVE') {
+      setErrorMsg(
+        validSchedule.status === 'UPCOMING'
+          ? `Sesi ujian "${validSchedule.packetTitle}" belum dibuka oleh Pengawas (Status: Akan Datang).`
+          : `Sesi ujian "${validSchedule.packetTitle}" telah berakhir (Status: Selesai).`
+      );
+      return;
+    }
+
+    const targetPacket = packets.find((p) => p.id === validSchedule.packetId);
+    if (!targetPacket) {
+      setErrorMsg(
+        'Paket soal untuk jadwal ujian ini belum tersedia. Hubungi Panitia atau Pengawas CBT.'
+      );
+      return;
+    }
 
     const alreadySubmitted = submissions.some(
       (sub) =>
         (sub.studentId === matchedStudent.id ||
           sub.nomorPeserta.toLowerCase() === matchedStudent.nomorPeserta.toLowerCase()) &&
-        sub.packetId === targetPacket?.id
+        sub.packetId === targetPacket.id
     );
 
     if (alreadySubmitted) {
       setErrorMsg(
-        `Peserta ${matchedStudent.nama} (${matchedStudent.nomorPeserta}) telah menyelesaikan dan mengumpulkan ujian untuk paket "${targetPacket?.title || 'ini'}". Hubungi Pengawas Ruang jika memerlukan izin ujian ulang.`
+        `Peserta ${matchedStudent.nama} (${matchedStudent.nomorPeserta}) telah menyelesaikan dan mengumpulkan ujian untuk paket "${targetPacket.title}". Hubungi Pengawas Ruang jika memerlukan izin ujian ulang.`
       );
       return;
     }
@@ -145,7 +177,7 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
       avatarInitials: getInitials(matchedStudent.nama),
       jenjang: matchedStudent.jenjang,
       studentId: matchedStudent.id,
-      packetId: targetPacket?.id,
+      packetId: targetPacket.id,
     });
   };
 

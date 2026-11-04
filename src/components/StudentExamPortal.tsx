@@ -91,14 +91,96 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   const [esaiAnswers, setEsaiAnswers] = useState<Record<string, string>>({});
   const [doubtFlags, setDoubtFlags] = useState<Record<string, boolean>>({});
   const [lastSubmission, setLastSubmission] = useState<ExamSubmission | null>(null);
+  const hydratedProgressKeyRef = useRef<string | null>(null);
+
+  const progressStorageKey =
+    activePacket?.id && (matchingStudent?.id || initialStudentId)
+      ? `jn_cbt_exam_progress_v1_${matchingStudent?.id || initialStudentId}_${activePacket.id}`
+      : null;
+
+  // Hydrate saved answers & remaining timer if browser refreshed mid-exam
+  useEffect(() => {
+    if (!progressStorageKey || !activePacket) return;
+    if (hydratedProgressKeyRef.current === progressStorageKey) return;
+    hydratedProgressKeyRef.current = progressStorageKey;
+
+    try {
+      const raw = localStorage.getItem(progressStorageKey);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved && saved.packetId === activePacket.id) {
+          if (saved.pgAnswers) setPgAnswers(saved.pgAnswers);
+          if (saved.pgkAnswers) setPgkAnswers(saved.pgkAnswers);
+          if (saved.bsAnswers) setBsAnswers(saved.bsAnswers);
+          if (saved.esaiAnswers) setEsaiAnswers(saved.esaiAnswers);
+          if (saved.doubtFlags) setDoubtFlags(saved.doubtFlags);
+          if (typeof saved.currentIndex === 'number') setCurrentIndex(saved.currentIndex);
+          if (typeof saved.violationCount === 'number') setViolationCount(saved.violationCount);
+          if (typeof saved.secondsLeft === 'number' && saved.secondsLeft > 0) {
+            setSecondsLeft(saved.secondsLeft);
+          } else if (matchingSchedule) {
+            setSecondsLeft(matchingSchedule.durasiMenit * 60);
+          }
+          if (saved.hasStarted) {
+            setHasStarted(true);
+          }
+          return;
+        }
+      }
+    } catch {
+      // Ignore parse error
+    }
+
+    if (matchingSchedule) {
+      setTokenInput(matchingSchedule.token);
+      setSecondsLeft(matchingSchedule.durasiMenit * 60);
+    }
+  }, [progressStorageKey, activePacket?.id, matchingSchedule?.id]);
+
+  // Persist active exam answers & remaining seconds in real-time against accidental refresh
+  useEffect(() => {
+    if (!progressStorageKey || !activePacket || !hasStarted || isSubmitted) return;
+    try {
+      localStorage.setItem(
+        progressStorageKey,
+        JSON.stringify({
+          packetId: activePacket.id,
+          pgAnswers,
+          pgkAnswers,
+          bsAnswers,
+          esaiAnswers,
+          doubtFlags,
+          currentIndex,
+          violationCount,
+          secondsLeft,
+          hasStarted,
+          savedAt: Date.now(),
+        })
+      );
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [
+    progressStorageKey,
+    activePacket?.id,
+    hasStarted,
+    isSubmitted,
+    pgAnswers,
+    pgkAnswers,
+    bsAnswers,
+    esaiAnswers,
+    doubtFlags,
+    currentIndex,
+    violationCount,
+    secondsLeft,
+  ]);
 
   useEffect(() => {
     if (matchingSchedule) {
       setTokenInput(matchingSchedule.token);
-      setSecondsLeft(matchingSchedule.durasiMenit * 60);
       setLiveAnnouncement(matchingSchedule.announcement);
     }
-  }, [selectedPacketId, matchingSchedule?.announcement]);
+  }, [matchingSchedule?.token, matchingSchedule?.announcement]);
 
   useEffect(() => {
     if (!hasStarted || isSubmitted) return;
@@ -107,6 +189,17 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     }, 1000);
     return () => clearInterval(timer);
   }, [hasStarted, isSubmitted]);
+
+  // Auto-submit immediately when countdown timer reaches 00:00
+  useEffect(() => {
+    if (!hasStarted || isSubmitted) return;
+    if (secondsLeft <= 0) {
+      setProctorToast(
+        'Waktu ujian telah habis (00:00). Lembar jawaban Anda dikumpulkan secara otomatis.'
+      );
+      forceSubmitRef.current?.();
+    }
+  }, [secondsLeft, hasStarted, isSubmitted]);
 
   // Anti-cheat tab switch listener during active exam
   useEffect(() => {
@@ -157,6 +250,22 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           setViolationCount(0);
           if (msg.action === 'RESET_SUBMIT') {
             setIsSubmitted(false);
+            if (progressStorageKey) {
+              try {
+                localStorage.removeItem(progressStorageKey);
+              } catch {
+                // ignore
+              }
+            }
+            setPgAnswers({});
+            setPgkAnswers({});
+            setBsAnswers({});
+            setEsaiAnswers({});
+            setDoubtFlags({});
+            setCurrentIndex(0);
+            if (matchingSchedule) {
+              setSecondsLeft(matchingSchedule.durasiMenit * 60);
+            }
           }
           setProctorToast('Pengawas Ruang telah membuka kunci / mereset sesi ujian Anda!');
           setTimeout(() => setProctorToast(null), 4500);
@@ -331,6 +440,14 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       submission,
       timestamp: Date.now(),
     });
+
+    if (progressStorageKey) {
+      try {
+        localStorage.removeItem(progressStorageKey);
+      } catch {
+        // ignore
+      }
+    }
 
     setShowConfirmSubmitModal(false);
     setLastSubmission(submission);

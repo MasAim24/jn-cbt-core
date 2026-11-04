@@ -131,6 +131,13 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   const handleAudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 1536 * 1024) {
+      alert(
+        'Ukuran file audio terlalu besar (> 1,5 MB) untuk disimpan langsung di database. Gunakan file MP3/OGG terkompresi (< 1,5 MB) atau tempelkan URL link audio eksternal.'
+      );
+      e.target.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {

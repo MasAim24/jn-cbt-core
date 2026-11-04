@@ -563,7 +563,9 @@ export function App() {
     setPackets((prev) => {
       const next = prev.filter((item) => item.id !== packetId);
       localStorage.setItem(STORAGE_KEYS.PACKETS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ packets_json: next });
+      patchMasterColumnInSupabase({ packets_json: next }, undefined, {
+        deletedIds: [packetId],
+      });
       return next;
     });
   };
@@ -586,7 +588,9 @@ export function App() {
     setSchedules((prev) => {
       const next = prev.filter((item) => item.id !== scheduleId);
       localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(next));
-      patchMasterColumnInSupabase({ schedules_json: next });
+      patchMasterColumnInSupabase({ schedules_json: next }, undefined, {
+        deletedIds: [scheduleId],
+      });
       return next;
     });
     deleteScheduleFromSupabase(scheduleId);
@@ -647,7 +651,9 @@ export function App() {
     setStudents((prev) => {
       const next = prev.filter((item) => item.id !== id);
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ students_json: next });
+      patchMasterColumnInSupabase({ students_json: next }, undefined, {
+        deletedIds: [id],
+      });
       return next;
     });
     deleteStudentFromSupabase(id);
@@ -671,7 +677,9 @@ export function App() {
     setTeachers((prev) => {
       const next = prev.filter((item) => item.id !== id);
       localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ teachers_json: next });
+      patchMasterColumnInSupabase({ teachers_json: next }, undefined, {
+        deletedIds: [id],
+      });
       return next;
     });
   };

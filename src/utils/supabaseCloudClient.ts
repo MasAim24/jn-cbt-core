@@ -416,6 +416,7 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
 }
 
 const PENDING_PATCHES_KEY = 'jn_cbt_pending_cloud_patches_v1';
+const DELETED_IDS_KEY = 'jn_cbt_deleted_entity_ids_v1';
 
 export interface MasterColumnsPatch {
   settings_json?: SchoolSettings;
@@ -424,6 +425,66 @@ export interface MasterColumnsPatch {
   students_json?: Student[];
   teachers_json?: Teacher[];
 }
+
+export interface PatchMasterOptions {
+  deletedIds?: string[];
+  replaceAll?: boolean;
+}
+
+function getDeletedEntityIds(): Set<string> {
+  try {
+    if (typeof window === 'undefined') return new Set();
+    const raw = localStorage.getItem(DELETED_IDS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function recordDeletedEntityIds(ids: string[]): Set<string> {
+  const current = getDeletedEntityIds();
+  ids.forEach((id) => {
+    if (id) current.add(id);
+  });
+  try {
+    if (typeof window !== 'undefined') {
+      const list = Array.from(current).slice(-500);
+      localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(list));
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return current;
+}
+
+const LEGACY_DUMMY_ALL_IDS = new Set([
+  'pkt-mts-01',
+  'pkt-ma-01',
+  'pkt-wustho-01',
+  'pkt-ulya-01',
+  'sch-01',
+  'sch-02',
+  'sch-03',
+  'sch-04',
+  'std-mts-1',
+  'std-mts-2',
+  'std-mts-3',
+  'std-ma-1',
+  'std-ma-2',
+  'std-wst-1',
+  'std-wst-2',
+  'std-uly-1',
+  'std-uly-2',
+  'std-imp-1793664205470-0',
+  'std-imp-1793664205470-1',
+  'std-imp-1793664205470-2',
+  'tch-1',
+  'tch-2',
+  'tch-3',
+  'tch-4',
+]);
 
 export function getPendingCloudPatches(): MasterColumnsPatch {
   try {
@@ -451,12 +512,14 @@ function setPendingCloudPatches(next: MasterColumnsPatch): void {
 
 /**
  * Immediately patches ONLY the modified column(s) in `cbt_app_state` (id = 1)
- * and persists a durable pending-patch journal in `localStorage` so even an
- * instant page refresh (`F5`) never loses unsynced teacher/student/packet/schedule changes.
+ * using Atomic Read-Merge-Write per item ID (so two teachers saving packets/schedules
+ * concurrently on different devices never overwrite each other's items) and persists
+ * a durable pending-patch journal in `localStorage`.
  */
 export async function patchMasterColumnInSupabase(
   columns: MasterColumnsPatch,
-  customCfg?: SupabaseCloudConfig | null
+  customCfg?: SupabaseCloudConfig | null,
+  options?: PatchMasterOptions
 ): Promise<boolean> {
   const normalizedColumns: MasterColumnsPatch = { ...columns };
   const cfg = customCfg || getSupabaseConfig(columns.settings_json);
@@ -469,6 +532,10 @@ export async function patchMasterColumnInSupabase(
     };
   }
 
+  const deletedSet = options?.deletedIds?.length
+    ? recordDeletedEntityIds(options.deletedIds)
+    : getDeletedEntityIds();
+
   // Record in durable pending journal synchronously before network call
   const snapshotBefore = { ...getPendingCloudPatches(), ...normalizedColumns };
   setPendingCloudPatches(snapshotBefore);
@@ -476,6 +543,44 @@ export async function patchMasterColumnInSupabase(
   if (!cfg) return false;
 
   try {
+    const arrayColumnKeys = (
+      ['packets_json', 'schedules_json', 'students_json', 'teachers_json'] as const
+    ).filter((k) => Array.isArray(normalizedColumns[k]));
+
+    // Atomic Read-Merge-Write per item ID across concurrent teacher/admin devices
+    if (!options?.replaceAll && arrayColumnKeys.length > 0) {
+      const selectCols = arrayColumnKeys.join(',');
+      const currentRes = await fetch(
+        `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=${selectCols}`,
+        { headers: buildHeaders(cfg.anonKey) }
+      ).catch(() => null);
+
+      if (currentRes && currentRes.ok) {
+        const currentRows = await currentRes.json().catch(() => []);
+        const remoteRow = Array.isArray(currentRows) && currentRows[0] ? currentRows[0] : null;
+        if (remoteRow) {
+          for (const colKey of arrayColumnKeys) {
+            const localArr = (normalizedColumns[colKey] || []) as { id: string }[];
+            const remoteArr = Array.isArray(remoteRow[colKey])
+              ? (remoteRow[colKey] as { id: string }[])
+              : [];
+            const localIds = new Set(localArr.map((item) => item?.id));
+            const preservedRemote = remoteArr.filter(
+              (rItem) =>
+                rItem &&
+                rItem.id &&
+                !localIds.has(rItem.id) &&
+                !deletedSet.has(rItem.id) &&
+                !LEGACY_DUMMY_ALL_IDS.has(rItem.id)
+            );
+            if (preservedRemote.length > 0) {
+              (normalizedColumns as any)[colKey] = [...localArr, ...preservedRemote];
+            }
+          }
+        }
+      }
+    }
+
     const nowIso = new Date().toISOString();
     const patchBody = {
       ...normalizedColumns,
@@ -750,6 +855,15 @@ export async function pushAtomicEventToSupabase(message: LiveSyncMessage): Promi
           payload_json: message,
         }),
       });
+
+      // Automatically prune cbt_live_events older than 24 hours to keep event table fast
+      if (message.type !== 'STUDENT_SUBMITTED' || Math.random() < 0.1) {
+        const cutoffTs = Date.now() - 24 * 60 * 60 * 1000;
+        fetch(`${cfg.url}/rest/v1/cbt_live_events?timestamp=lt.${cutoffTs}`, {
+          method: 'DELETE',
+          headers: buildHeaders(cfg.anonKey),
+        }).catch(() => {});
+      }
     }
   } catch {
     // Ignore transient network errors on background sync

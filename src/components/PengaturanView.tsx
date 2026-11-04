@@ -17,9 +17,14 @@ import {
 } from 'lucide-react';
 import { NavTab, SchoolSettings, Student, Teacher } from '../types/cbt';
 import { CornerTableSticker } from './common/CornerStickerBadge';
-import { fetchSqliteStatus, SqliteServerStatus } from '../utils/sqliteApiClient';
+import {
+  fetchSqliteStatus,
+  isLocalSqliteHost,
+  SqliteServerStatus,
+} from '../utils/sqliteApiClient';
 import {
   checkSupabaseConnection,
+  getSupabaseConfig,
   SUPABASE_SQL_SCHEMA,
   SupabaseCloudStatus,
 } from '../utils/supabaseCloudClient';
@@ -58,15 +63,21 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    setForm(settings);
+    const supaCfg = getSupabaseConfig(settings);
+    setForm({
+      ...settings,
+      supabaseUrl: settings.supabaseUrl || supaCfg?.url || '',
+      supabaseAnonKey: settings.supabaseAnonKey || supaCfg?.anonKey || '',
+    });
   }, [settings]);
 
   useEffect(() => {
     fetchSqliteStatus().then((st) => {
       if (st) setSqliteStatus(st);
     });
-    if (settings.supabaseUrl && settings.supabaseAnonKey) {
-      checkSupabaseConnection(settings.supabaseUrl, settings.supabaseAnonKey).then((st) => {
+    const supaCfg = getSupabaseConfig(settings);
+    if (supaCfg) {
+      checkSupabaseConnection(supaCfg.url, supaCfg.anonKey).then((st) => {
         setSupabaseStatus(st);
       });
     }
@@ -280,6 +291,30 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
                   type="text"
                   value={form.namaYayasan}
                   onChange={(e) => setForm({ ...form, namaYayasan: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Alamat Pondok Pesantren
+                </label>
+                <input
+                  type="text"
+                  value={form.alamat || ''}
+                  onChange={(e) => setForm({ ...form, alamat: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-text-main block mb-1">
+                  Kecamatan / Kabupaten — Provinsi
+                </label>
+                <input
+                  type="text"
+                  value={form.kota || ''}
+                  onChange={(e) => setForm({ ...form, kota: e.target.value })}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
                 />
               </div>
@@ -608,110 +643,114 @@ export const PengaturanView: React.FC<PengaturanViewProps> = ({
             </div>
           </div>
 
-          <div className="rounded-[26px] bg-elevated p-6 shadow-card border border-border-subtle/60 space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-base font-extrabold text-text-main flex items-center gap-2">
-                <Database className="w-4 h-4 text-[#14B894]" />
-                <span>Server Database Lokal SQLite (WAL Mode)</span>
-              </h2>
-              <span
-                className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
-                  sqliteStatus
-                    ? 'bg-teal-50 text-[#087963]'
-                    : 'bg-amber-50 text-[#B85D19]'
-                }`}
-              >
-                {sqliteStatus ? 'TERHUBUNG (LAN AKTIF)' : 'LOCAL FALLBACK'}
-              </span>
-            </div>
-
-            <p className="text-[11px] text-text-muted leading-relaxed">
-              Seluruh perubahan Bank Soal, Jadwal, Database Santri Real, Akun Guru, dan Rekap Nilai
-              tersimpan otomatis secara terpusat ke dalam database relasional{' '}
-              <code className="px-1.5 py-0.5 rounded bg-surface font-mono font-bold text-text-main">
-                {sqliteStatus?.dbPath || 'database/jn_cbt_server.sqlite'}
-              </code>
-              .
-            </p>
-
-            {sqliteStatus && (
-              <div className="p-3.5 rounded-2xl bg-surface border border-border-subtle space-y-2.5 text-xs">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-text-muted font-semibold">Mesin SQLite Server:</span>
-                  <strong className="font-mono text-text-main">{sqliteStatus.engine}</strong>
-                </div>
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-text-muted font-semibold">Ukuran File Database:</span>
-                  <strong className="font-mono text-text-main">{sqliteStatus.sizeKb} KB</strong>
-                </div>
-                <div className="grid grid-cols-3 gap-2 pt-1 text-center">
-                  <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
-                    <div className="text-sm font-extrabold text-text-main">
-                      {sqliteStatus.counts.packets} / {sqliteStatus.counts.questions}
-                    </div>
-                    <div className="text-[10px] text-text-muted">Paket / Butir Soal</div>
-                  </div>
-                  <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
-                    <div className="text-sm font-extrabold text-[#087963]">
-                      {sqliteStatus.counts.students} / {sqliteStatus.counts.teachers}
-                    </div>
-                    <div className="text-[10px] text-text-muted">Santri / Akun Guru</div>
-                  </div>
-                  <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
-                    <div className="text-sm font-extrabold text-[#211955] dark:text-[#F8B478]">
-                      {sqliteStatus.counts.submissions}
-                    </div>
-                    <div className="text-[10px] text-text-muted">Rekap Nilai Masuk</div>
-                  </div>
-                </div>
-
-                <div className="pt-1 flex flex-wrap items-center gap-2">
-                  <a
-                    href="/api/cbt/download-sqlite"
-                    download
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-[#211955] text-[11px] font-extrabold transition"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Unduh File .sqlite</span>
-                  </a>
-                  {onForceSyncSqlite && (
-                    <button
-                      type="button"
-                      disabled={syncingSqlite}
-                      onClick={async () => {
-                        setSyncingSqlite(true);
-                        await onForceSyncSqlite();
-                        const nextSt = await fetchSqliteStatus();
-                        if (nextSt) setSqliteStatus(nextSt);
-                        setSyncingSqlite(false);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#087963] text-[11px] font-extrabold transition"
-                    >
-                      <RotateCcw className={`w-3.5 h-3.5 ${syncingSqlite ? 'animate-spin' : ''}`} />
-                      <span>{syncingSqlite ? 'Menyinkronkan...' : 'Sinkronkan ke SQLite'}</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="pt-2 flex items-center justify-between">
-              {savedNotice ? (
-                <span className="inline-flex items-center gap-1 text-xs font-extrabold text-[#087963]">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Pengaturan berhasil disimpan!</span>
+          {(isLocalSqliteHost() || Boolean(sqliteStatus)) && (
+            <div className="rounded-[26px] bg-elevated p-6 shadow-card border border-border-subtle/60 space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-base font-extrabold text-text-main flex items-center gap-2">
+                  <Database className="w-4 h-4 text-[#14B894]" />
+                  <span>Server Database Lokal SQLite (WAL Mode)</span>
+                </h2>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    sqliteStatus
+                      ? 'bg-teal-50 text-[#087963]'
+                      : 'bg-amber-50 text-[#B85D19]'
+                  }`}
+                >
+                  {sqliteStatus ? 'TERHUBUNG (LAN AKTIF)' : 'LOCAL FALLBACK'}
                 </span>
-              ) : (
-                <span />
+              </div>
+
+              <p className="text-[11px] text-text-muted leading-relaxed">
+                Seluruh perubahan Bank Soal, Jadwal, Database Santri Real, Akun Guru, dan Rekap Nilai
+                tersimpan otomatis secara terpusat ke dalam database relasional{' '}
+                <code className="px-1.5 py-0.5 rounded bg-surface font-mono font-bold text-text-main">
+                  {sqliteStatus?.dbPath || 'database/jn_cbt_server.sqlite'}
+                </code>
+                .
+              </p>
+
+              {sqliteStatus && (
+                <div className="p-3.5 rounded-2xl bg-surface border border-border-subtle space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-text-muted font-semibold">Mesin SQLite Server:</span>
+                    <strong className="font-mono text-text-main">{sqliteStatus.engine}</strong>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-text-muted font-semibold">Ukuran File Database:</span>
+                    <strong className="font-mono text-text-main">{sqliteStatus.sizeKb} KB</strong>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                    <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
+                      <div className="text-sm font-extrabold text-text-main">
+                        {sqliteStatus.counts.packets} / {sqliteStatus.counts.questions}
+                      </div>
+                      <div className="text-[10px] text-text-muted">Paket / Butir Soal</div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
+                      <div className="text-sm font-extrabold text-[#087963]">
+                        {sqliteStatus.counts.students} / {sqliteStatus.counts.teachers}
+                      </div>
+                      <div className="text-[10px] text-text-muted">Santri / Akun Guru</div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-elevated border border-border-subtle/70">
+                      <div className="text-sm font-extrabold text-[#211955] dark:text-[#F8B478]">
+                        {sqliteStatus.counts.submissions}
+                      </div>
+                      <div className="text-[10px] text-text-muted">Rekap Nilai Masuk</div>
+                    </div>
+                  </div>
+
+                  <div className="pt-1 flex flex-wrap items-center gap-2">
+                    <a
+                      href="/api/cbt/download-sqlite"
+                      download
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-[#211955] text-[11px] font-extrabold transition"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Unduh File .sqlite</span>
+                    </a>
+                    {onForceSyncSqlite && (
+                      <button
+                        type="button"
+                        disabled={syncingSqlite}
+                        onClick={async () => {
+                          setSyncingSqlite(true);
+                          await onForceSyncSqlite();
+                          const nextSt = await fetchSqliteStatus();
+                          if (nextSt) setSqliteStatus(nextSt);
+                          setSyncingSqlite(false);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#087963] text-[11px] font-extrabold transition"
+                      >
+                        <RotateCcw className={`w-3.5 h-3.5 ${syncingSqlite ? 'animate-spin' : ''}`} />
+                        <span>{syncingSqlite ? 'Menyinkronkan...' : 'Sinkronkan ke SQLite'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
-              <button
-                type="submit"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white font-extrabold transition shadow-sm"
-              >
-                <Save className="w-4 h-4" />
-                <span>Simpan Konfigurasi</span>
-              </button>
             </div>
+          )}
+
+          <div className="rounded-[22px] bg-elevated px-5 py-4 shadow-card border border-border-subtle/60 flex items-center justify-between">
+            {savedNotice ? (
+              <span className="inline-flex items-center gap-1 text-xs font-extrabold text-[#087963]">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Pengaturan berhasil disimpan!</span>
+              </span>
+            ) : (
+              <span className="text-[11px] font-semibold text-text-muted">
+                Pastikan klik simpan setelah mengubah konfigurasi
+              </span>
+            )}
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white font-extrabold transition shadow-sm"
+            >
+              <Save className="w-4 h-4" />
+              <span>Simpan Konfigurasi</span>
+            </button>
           </div>
         </div>
       </form>

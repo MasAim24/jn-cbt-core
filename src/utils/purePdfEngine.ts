@@ -18,6 +18,17 @@ export type OfficialPdfDocType =
 const A4_W = 1588;
 const A4_H = 2246;
 
+const cachedOfficialLogo: HTMLImageElement | null =
+  typeof window !== 'undefined'
+    ? (() => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const baseUrl = (import.meta as any).env?.BASE_URL || './';
+        img.src = `${baseUrl}logo-jabalnur.png`;
+        return img;
+      })()
+    : null;
+
 /**
  * Encodes an array of A4 HTMLCanvasElements into a 100% genuine, multi-page
  * ISO-32000 PDF 1.4 binary Blob (application/pdf) with zero external dependencies.
@@ -184,24 +195,33 @@ function drawOfficialLetterhead(
 
   // Left Emblem Seal Box
   ctx.save();
-  ctx.fillStyle = '#211955';
-  safeRoundRect(ctx, marginX, y, 108, 108, 20);
-  ctx.fill();
+  if (
+    cachedOfficialLogo &&
+    cachedOfficialLogo.complete &&
+    cachedOfficialLogo.naturalWidth > 0
+  ) {
+    ctx.drawImage(cachedOfficialLogo, marginX, y + 4, 108, 108);
+  } else {
+    ctx.fillStyle = '#211955';
+    safeRoundRect(ctx, marginX, y, 108, 108, 20);
+    ctx.fill();
 
-  ctx.strokeStyle = '#F8B478';
-  ctx.lineWidth = 3;
-  safeRoundRect(ctx, marginX + 8, y + 8, 92, 92, 14);
-  ctx.stroke();
+    ctx.strokeStyle = '#F8B478';
+    ctx.lineWidth = 3;
+    safeRoundRect(ctx, marginX + 8, y + 8, 92, 92, 14);
+    ctx.stroke();
 
-  ctx.fillStyle = '#F8B478';
-  ctx.font = '800 34px "Plus Jakarta Sans", sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('JN', marginX + 54, y + 60);
-  ctx.font = '700 13px "Plus Jakarta Sans", sans-serif';
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillText('CBT CORE', marginX + 54, y + 84);
+    ctx.fillStyle = '#F8B478';
+    ctx.font = '800 34px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('JN', marginX + 54, y + 60);
+    ctx.font = '700 13px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('CBT CORE', marginX + 54, y + 84);
+  }
 
   // Center Official Institution Header
+  ctx.textAlign = 'center';
   const centerX = A4_W / 2 + 30;
   ctx.fillStyle = '#1E1645';
   ctx.font = '800 22px "Plus Jakarta Sans", sans-serif';
@@ -426,19 +446,32 @@ export function renderKartuPesertaPages(
       safeRoundRect(ctx, cx, cy, cardW, 92, [18, 18, 0, 0]);
       ctx.fill();
 
+      let textStartX = cx + 24;
+      if (
+        cachedOfficialLogo &&
+        cachedOfficialLogo.complete &&
+        cachedOfficialLogo.naturalWidth > 0
+      ) {
+        ctx.fillStyle = '#FFFFFF';
+        safeRoundRect(ctx, cx + 18, cy + 16, 60, 60, 12);
+        ctx.fill();
+        ctx.drawImage(cachedOfficialLogo, cx + 22, cy + 20, 52, 52);
+        textStartX = cx + 90;
+      }
+
       ctx.fillStyle = '#F8B478';
-      ctx.font = '800 14px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText(settings.namaYayasan.toUpperCase(), cx + 24, cy + 32);
+      ctx.font = '800 13px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(settings.namaYayasan.toUpperCase(), textStartX, cy + 32);
 
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = '800 20px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText(`KARTU PESERTA UJIAN CBT`, cx + 24, cy + 60);
+      ctx.font = '800 19px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(`KARTU PESERTA UJIAN CBT`, textStartX, cy + 60);
 
       ctx.fillStyle = '#CBD5E1';
       ctx.font = '600 13px "Plus Jakarta Sans", sans-serif';
       ctx.fillText(
         `TP ${settings.tahunAjaran} • Semester ${settings.semester}`,
-        cx + 24,
+        textStartX,
         cy + 80
       );
 

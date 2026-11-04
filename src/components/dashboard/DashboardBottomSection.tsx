@@ -14,6 +14,11 @@ interface DashboardBottomSectionProps {
   schedulesCount: number;
   ungradedEssays: number;
   studentsCount: number;
+  mtsCount: number;
+  maCount: number;
+  wusthoCount: number;
+  ulyaCount: number;
+  kkmPassRate: number;
   statPeriod: 'Hari Ini' | 'Minggu Ini' | 'Semester Ganjil';
   onCycleStatPeriod: () => void;
   totalHadirParticipants: number;
@@ -28,6 +33,11 @@ export const DashboardBottomSection: React.FC<DashboardBottomSectionProps> = ({
   schedulesCount,
   ungradedEssays,
   studentsCount,
+  mtsCount,
+  maCount,
+  wusthoCount,
+  ulyaCount,
+  kkmPassRate,
   statPeriod,
   onCycleStatPeriod,
   totalHadirParticipants,
@@ -91,7 +101,7 @@ export const DashboardBottomSection: React.FC<DashboardBottomSectionProps> = ({
               </div>
             </div>
             <span className="ml-2 px-2.5 py-1 rounded-full bg-[#55E5C7] text-[#064D42] text-[11px] font-extrabold shrink-0">
-              92%
+              {kkmPassRate}%
             </span>
           </button>
 
@@ -231,40 +241,40 @@ export const DashboardBottomSection: React.FC<DashboardBottomSectionProps> = ({
           </div>
 
           <MultiSegmentDonutChart
-            centerPrimary={`${totalScheduledParticipants} Santri`}
+            centerPrimary={`${studentsCount} Santri`}
             centerSecondary="Total Terdaftar"
             segments={[
-              { label: 'MTs', value: 142, color: '#F0544F' },
-              { label: 'Aliyah', value: 118, color: '#F59E0B' },
-              { label: 'Wustho', value: 96, color: '#55E5C7' },
-              { label: 'Ulya', value: 64, color: '#8362FF' },
+              { label: 'MTs', value: mtsCount, color: '#8362FF' },
+              { label: 'Aliyah', value: maCount, color: '#F59E0B' },
+              { label: 'Wustho', value: wusthoCount, color: '#55E5C7' },
+              { label: 'Ulya', value: ulyaCount, color: '#F0544F' },
             ]}
           />
 
           <div className="grid grid-cols-2 sm:grid-cols-1 gap-1.5 text-[11px] w-full sm:w-auto shrink-0">
             <div className="flex items-center gap-2 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-[#8362FF] shrink-0" />
-              <span className="text-indigo-100">MTs (142)</span>
+              <span className="text-indigo-100">MTs ({mtsCount})</span>
             </div>
             <div className="flex items-center gap-2 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-[#F59E0B] shrink-0" />
-              <span className="text-indigo-100">Aliyah (118)</span>
+              <span className="text-indigo-100">Aliyah ({maCount})</span>
             </div>
             <div className="flex items-center gap-2 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-[#55E5C7] shrink-0" />
-              <span className="text-indigo-100">Wustho (96)</span>
+              <span className="text-indigo-100">Wustho ({wusthoCount})</span>
             </div>
             <div className="flex items-center gap-2 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-[#F0544F] shrink-0" />
-              <span className="text-indigo-100">&apos;Ulya (64)</span>
+              <span className="text-indigo-100">&apos;Ulya ({ulyaCount})</span>
             </div>
             <div className="flex items-center gap-2 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-[#F8B478] shrink-0" />
-              <span className="text-indigo-100">Lulus KKM</span>
+              <span className="text-indigo-100">Lulus KKM ({kkmPassRate}%)</span>
             </div>
             <div className="flex items-center gap-2 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-white/40 shrink-0" />
-              <span className="text-indigo-100">Susulan</span>
+              <span className="text-indigo-100">Jadwal ({totalScheduledParticipants})</span>
             </div>
           </div>
         </div>

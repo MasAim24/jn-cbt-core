@@ -47,13 +47,20 @@ export const JENJANG_META = {
   },
 };
 
+const ENV_SUPABASE_URL =
+  ((import.meta as any).env?.VITE_SUPABASE_URL as string | undefined)?.trim() ||
+  'https://zlxzgmtiufzjnqebkuih.supabase.co';
+const ENV_SUPABASE_ANON_KEY =
+  ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() ||
+  'sb_publishable_Oc_bXVJ8qDzhubprij59pw_BHXJ7Y8Z';
+
 export const INITIAL_SETTINGS: SchoolSettings = {
-  namaYayasan: 'Yayasan Pendidikan Islam & Pondok Pesantren Jabal Nur',
+  namaYayasan: 'Pondok Pesantren Jabal Nur Kandis',
   namaAplikasi: 'JN ExamCBTCore',
   tahunAjaran: '2026/2027',
   semester: 'Ganjil',
-  alamat: 'Jl. Pesantren Jabal Nur No. 99, Kompleks Pendidikan Terpadu',
-  kota: 'Kabupaten Sidoarjo — Jawa Timur',
+  alamat: 'Jl. Raya Pekanbaru – Duri, Kec. Kandis, Kab. Siak',
+  kota: 'Kandis, Kabupaten Siak — Riau',
   kepalaMTs: 'Belum Diatur (Input via Admin)',
   kepalaMA: 'Belum Diatur (Input via Admin)',
   mudirWustho: 'Belum Diatur (Input via Admin)',
@@ -66,7 +73,7 @@ export const INITIAL_SETTINGS: SchoolSettings = {
   antiCheatBlockTabSwitch: true,
   maxViolationsAllowed: 3,
   autoRotateTokenMinutes: 15,
-  supabaseUrl: '',
-  supabaseAnonKey: '',
-  syncMode: 'LOCAL_STORAGE',
+  supabaseUrl: ENV_SUPABASE_URL,
+  supabaseAnonKey: ENV_SUPABASE_ANON_KEY,
+  syncMode: ENV_SUPABASE_URL && ENV_SUPABASE_ANON_KEY ? 'SUPABASE_HYBRID' : 'LOCAL_STORAGE',
 };

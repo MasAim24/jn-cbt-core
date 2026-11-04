@@ -65,6 +65,31 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function normalizeSchoolSettings(raw?: SchoolSettings): SchoolSettings {
+  const base = raw || INITIAL_SETTINGS;
+  const isLegacyYayasan =
+    !base.namaYayasan ||
+    base.namaYayasan === 'Yayasan Pendidikan Islam & Pondok Pesantren Jabal Nur';
+  const isLegacyKota = !base.kota || base.kota.includes('Sidoarjo');
+  const isLegacyAlamat = !base.alamat || base.alamat.includes('Pesantren Jabal Nur No.');
+
+  const envSupa = getSupabaseConfig();
+  const nextUrl = base.supabaseUrl || envSupa?.url || INITIAL_SETTINGS.supabaseUrl || '';
+  const nextKey =
+    base.supabaseAnonKey || envSupa?.anonKey || INITIAL_SETTINGS.supabaseAnonKey || '';
+
+  return {
+    ...INITIAL_SETTINGS,
+    ...base,
+    namaYayasan: isLegacyYayasan ? INITIAL_SETTINGS.namaYayasan : base.namaYayasan,
+    alamat: isLegacyAlamat ? INITIAL_SETTINGS.alamat : base.alamat,
+    kota: isLegacyKota ? INITIAL_SETTINGS.kota : base.kota,
+    supabaseUrl: nextUrl,
+    supabaseAnonKey: nextKey,
+    syncMode: nextUrl && nextKey ? 'SUPABASE_HYBRID' : base.syncMode || 'LOCAL_STORAGE',
+  };
+}
+
 export function App() {
   const [authSession, setAuthSession] = useState<AuthenticatedSession | null>(() => {
     try {
@@ -110,9 +135,10 @@ export function App() {
   const [submissions, setSubmissions] = useState<ExamSubmission[]>(() =>
     loadFromStorage(STORAGE_KEYS.SUBMISSIONS, INITIAL_SUBMISSIONS)
   );
-  const [settings, setSettings] = useState<SchoolSettings[]>(() =>
-    loadFromStorage(STORAGE_KEYS.SETTINGS, [INITIAL_SETTINGS])
-  );
+  const [settings, setSettings] = useState<SchoolSettings[]>(() => {
+    const loaded = loadFromStorage(STORAGE_KEYS.SETTINGS, [INITIAL_SETTINGS]);
+    return [normalizeSchoolSettings(loaded[0])];
+  });
 
   const currentSettings = settings[0] || INITIAL_SETTINGS;
 
@@ -180,7 +206,10 @@ export function App() {
               supaCfg
             );
           } else {
-            if (cloudLoaded.settings) setSettings([cloudLoaded.settings]);
+            if (cloudLoaded.settings) {
+              const normalizedCloudSettings = normalizeSchoolSettings(cloudLoaded.settings);
+              setSettings([normalizedCloudSettings]);
+            }
             if (Array.isArray(cloudLoaded.packets) && cloudLoaded.packets.length > 0) {
               setPackets(cloudLoaded.packets);
             }
@@ -219,7 +248,9 @@ export function App() {
         });
         sqliteReadyRef.current = true;
       } else {
-        if (loaded.settings) setSettings([loaded.settings]);
+        if (loaded.settings) {
+          setSettings([normalizeSchoolSettings(loaded.settings)]);
+        }
         if (Array.isArray(loaded.packets) && loaded.packets.length > 0) {
           setPackets(loaded.packets);
         }

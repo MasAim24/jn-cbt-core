@@ -152,6 +152,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     submissions.length > 0
       ? (submissions.reduce((acc, s) => acc + s.totalScore, 0) / submissions.length).toFixed(1)
       : '0.0';
+  const kkmPassRate =
+    submissions.length > 0
+      ? Math.round(
+          (submissions.filter((s) => s.totalScore >= s.kkm).length / submissions.length) * 100
+        )
+      : 0;
 
   const totalScheduledParticipants = schedules.reduce((acc, s) => acc + s.totalPeserta, 0);
   const totalHadirParticipants = schedules.reduce((acc, s) => acc + s.hadirCount, 0);
@@ -404,6 +410,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         schedulesCount={schedules.length}
         ungradedEssays={ungradedEssays}
         studentsCount={students.length}
+        mtsCount={mtsCount}
+        maCount={maCount}
+        wusthoCount={wusthoCount}
+        ulyaCount={ulyaCount}
+        kkmPassRate={kkmPassRate}
         statPeriod={statPeriod}
         onCycleStatPeriod={() =>
           setStatPeriod((prev) =>

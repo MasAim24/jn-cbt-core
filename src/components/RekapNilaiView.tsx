@@ -94,7 +94,7 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
   const minScore = scores.length > 0 ? Math.min(...scores) : 0;
   const passedCount = baseByJenjang.filter((s) => s.totalScore >= s.kkm).length;
   const passRate =
-    baseByJenjang.length > 0 ? Math.round((passedCount / baseByJenjang.length) * 100) : 100;
+    baseByJenjang.length > 0 ? Math.round((passedCount / baseByJenjang.length) * 100) : 0;
   const ungradedCount = baseByJenjang.filter((s) => !s.isEsaiGraded).length;
 
   const handleExportCSV = () => {

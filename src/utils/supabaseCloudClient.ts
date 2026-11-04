@@ -106,17 +106,25 @@ function normalizeSupabaseUrl(rawUrl?: string): string {
   return rawUrl.trim().replace(/\/+$/, '');
 }
 
+const DEFAULT_CLOUD_SUPABASE_URL = 'https://zlxzgmtiufzjnqebkuih.supabase.co';
+const DEFAULT_CLOUD_SUPABASE_ANON_KEY = 'sb_publishable_Oc_bXVJ8qDzhubprij59pw_BHXJ7Y8Z';
+
 /**
  * Resolves Supabase URL & Anon Key from:
  * 1. Explicit SchoolSettings passed in
  * 2. Build-time environment variables (VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY)
  * 3. Saved localStorage SchoolSettings ('jn_cbt_settings_v3')
+ * 4. Built-in Pondok Pesantren Jabal Nur Cloud Supabase project defaults
  */
 export function getSupabaseConfig(settings?: SchoolSettings): SupabaseCloudConfig | null {
   const envUrl = normalizeSupabaseUrl(
-    (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined
+    ((import.meta as any).env?.VITE_SUPABASE_URL as string | undefined) ||
+      DEFAULT_CLOUD_SUPABASE_URL
   );
-  const envKey = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
+  const envKey = (
+    ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+    DEFAULT_CLOUD_SUPABASE_ANON_KEY
+  ).trim();
 
   if (settings?.supabaseUrl && settings?.supabaseAnonKey) {
     return {

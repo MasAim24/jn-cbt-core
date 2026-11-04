@@ -60,7 +60,7 @@ export const MultiSegmentDonutChart: React.FC<MultiSegmentDonutChartProps> = ({
   centerPrimary,
   centerSecondary,
 }) => {
-  const total = segments.reduce((acc, s) => acc + s.value, 0) || 1;
+  const rawTotal = segments.reduce((acc, s) => acc + s.value, 0);
   const outerRadius = 62;
   const outerCircumference = 2 * Math.PI * outerRadius;
   const mainRadius = 51;
@@ -82,7 +82,7 @@ export const MultiSegmentDonutChart: React.FC<MultiSegmentDonutChartProps> = ({
 
         {/* Outer colored segmented arcs */}
         {segments.map((seg, idx) => {
-          const pct = seg.value / total;
+          const pct = rawTotal === 0 ? 1 / Math.max(1, segments.length) : seg.value / rawTotal;
           const arcLength = Math.max(8, pct * outerCircumference - 10);
           const strokeDasharray = `${arcLength} ${outerCircumference}`;
           const strokeDashoffset = -cumulativePercent * outerCircumference;

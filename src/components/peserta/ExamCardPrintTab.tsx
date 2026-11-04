@@ -51,20 +51,27 @@ export const ExamCardPrintTab: React.FC<ExamCardPrintTabProps> = ({
               className="border-2 border-slate-800 rounded-2xl p-4 break-inside-avoid bg-white"
             >
               {/* Header Kartu */}
-              <div className="flex items-center justify-between border-b-2 border-slate-800 pb-2.5 mb-3">
-                <div>
-                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-600">
-                    {settings.namaYayasan}
-                  </div>
-                  <div className="text-xs font-extrabold text-[#211955]">
-                    KARTU PESERTA UJIAN CBT — {meta.fullLabel.toUpperCase()}
-                  </div>
-                  <div className="text-[10px] font-semibold text-slate-600">
-                    Tahun Pelajaran {settings.tahunAjaran} ({settings.semester})
+              <div className="flex items-center justify-between gap-2.5 border-b-2 border-slate-800 pb-2.5 mb-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <img
+                    src={`${(import.meta as any).env?.BASE_URL || './'}logo-jabalnur.png`}
+                    alt="Logo Pondok Pesantren Jabal Nur"
+                    className="w-10 h-10 object-contain shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700 truncate">
+                      {settings.namaYayasan}
+                    </div>
+                    <div className="text-xs font-extrabold text-[#211955] truncate">
+                      KARTU PESERTA UJIAN CBT — {meta.fullLabel.toUpperCase()}
+                    </div>
+                    <div className="text-[10px] font-semibold text-slate-600 truncate">
+                      Tahun Pelajaran {settings.tahunAjaran} ({settings.semester})
+                    </div>
                   </div>
                 </div>
                 <div
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold shrink-0"
                   style={{ backgroundColor: meta.badgeBg, color: meta.badgeText }}
                 >
                   {s.jenjang}
@@ -155,20 +162,32 @@ export const AttendancePrintTab: React.FC<AttendancePrintTabProps> = ({
 }) => {
   return (
     <div className="rounded-[26px] bg-white text-slate-900 p-8 shadow-card border border-border-subtle/60 space-y-6">
-      <div className="text-center border-b-2 border-slate-900 pb-4">
-        <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-700">
-          {settings.namaYayasan}
-        </h2>
-        <h1 className="text-lg font-extrabold uppercase text-slate-900 mt-0.5">
-          DAFTAR HADIR &amp; BERITA ACARA PELAKSANAAN UJIAN CBT ({settings.namaAplikasi})
-        </h1>
-        <p className="text-xs text-slate-600 mt-1">
-          Jenjang:{' '}
-          {selectedJenjang === 'ALL'
-            ? 'MTs • Madrasah Aliyah • Wustho • ’Ulya'
-            : JENJANG_META[selectedJenjang].fullLabel}{' '}
-          • Tahun Ajaran {settings.tahunAjaran} ({settings.semester})
-        </p>
+      <div className="flex items-center justify-center gap-4 border-b-2 border-slate-900 pb-4">
+        <img
+          src={`${(import.meta as any).env?.BASE_URL || './'}logo-jabalnur.png`}
+          alt="Logo Pondok Pesantren Jabal Nur"
+          className="w-14 h-14 object-contain shrink-0"
+        />
+        <div className="text-center">
+          <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-700">
+            {settings.namaYayasan}
+          </h2>
+          <h1 className="text-lg font-extrabold uppercase text-slate-900 mt-0.5">
+            DAFTAR HADIR &amp; BERITA ACARA PELAKSANAAN UJIAN CBT ({settings.namaAplikasi})
+          </h1>
+          <p className="text-xs text-slate-600 mt-1">
+            Jenjang:{' '}
+            {selectedJenjang === 'ALL'
+              ? 'MTs • Madrasah Aliyah • Wustho • ’Ulya'
+              : JENJANG_META[selectedJenjang].fullLabel}{' '}
+            • Tahun Ajaran {settings.tahunAjaran} ({settings.semester})
+          </p>
+          {(settings.alamat || settings.kota) && (
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {[settings.alamat, settings.kota].filter(Boolean).join(' — ')}
+            </p>
+          )}
+        </div>
       </div>
 
       <table className="w-full border-collapse border border-slate-800 text-xs">

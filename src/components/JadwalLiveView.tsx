@@ -22,6 +22,7 @@ interface JadwalLiveViewProps {
   onDeleteSchedule?: (scheduleId: string) => void;
   onRefreshToken: (scheduleId: string) => void;
   onOpenStudentSim: (packetId: string) => void;
+  onResetStudentSubmission?: (studentId: string, packetId: string) => void;
 }
 
 export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
@@ -33,6 +34,7 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
   onDeleteSchedule,
   onRefreshToken,
   onOpenStudentSim,
+  onResetStudentSubmission,
 }) => {
   const [selectedScheduleId, setSelectedScheduleId] = useState<string>(schedules[0]?.id || '');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -142,17 +144,27 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
 
   const handleParticipantAction = (
     participant: LiveParticipant,
-    action: 'RESET_LOGIN' | 'ADD_TIME' | 'FORCE_SUBMIT'
+    action: 'RESET_LOGIN' | 'ADD_TIME' | 'FORCE_SUBMIT' | 'RESET_SUBMIT'
   ) => {
     if (!activeSchedule) return;
+
+    if (action === 'RESET_SUBMIT' && onResetStudentSubmission) {
+      onResetStudentSubmission(participant.studentId, activeSchedule.packetId);
+    }
+
     const updatedList = activeSchedule.liveParticipants.map((p) => {
       if (p.studentId !== participant.studentId) return p;
-      if (action === 'RESET_LOGIN') {
+      if (action === 'RESET_LOGIN' || action === 'RESET_SUBMIT') {
         return {
           ...p,
           status: 'MENGERJAKAN' as const,
           violations: 0,
-          lastActivity: 'Login direset Pengawas',
+          remainingMinutes:
+            action === 'RESET_SUBMIT' ? activeSchedule.durasiMenit : p.remainingMinutes,
+          lastActivity:
+            action === 'RESET_SUBMIT'
+              ? 'Diizinkan Ujian Ulang oleh Pengawas'
+              : 'Login direset Pengawas',
         };
       }
       if (action === 'ADD_TIME') {
@@ -171,8 +183,11 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
       };
     });
 
+    const selesaiCount = updatedList.filter((p) => p.status === 'SELESAI').length;
+
     onSaveSchedule({
       ...activeSchedule,
+      selesaiCount,
       liveParticipants: updatedList,
     });
 
@@ -184,6 +199,40 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
       nomorPeserta: participant.nomorPeserta,
       action,
       addedMinutes: action === 'ADD_TIME' ? 15 : undefined,
+      timestamp: Date.now(),
+    });
+  };
+
+  const handleBulkProctorAction = (action: 'BULK_RESET_LOGIN' | 'BULK_ADD_TIME') => {
+    if (!activeSchedule) return;
+    const updatedList = activeSchedule.liveParticipants.map((p) => {
+      if (p.status === 'SELESAI') return p;
+      if (action === 'BULK_RESET_LOGIN') {
+        return {
+          ...p,
+          status: 'MENGERJAKAN' as const,
+          violations: 0,
+          lastActivity: 'Reset Anti-Cheat Massal (1 Ruang)',
+        };
+      }
+      return {
+        ...p,
+        remainingMinutes: p.remainingMinutes + 10,
+        lastActivity: '+10 Menit Massal (1 Ruang)',
+      };
+    });
+
+    onSaveSchedule({
+      ...activeSchedule,
+      liveParticipants: updatedList,
+    });
+
+    publishLiveSyncEvent({
+      type: 'PROCTOR_BULK_ACTION',
+      scheduleId: activeSchedule.id,
+      packetId: activeSchedule.packetId,
+      action,
+      addedMinutes: action === 'BULK_ADD_TIME' ? 10 : undefined,
       timestamp: Date.now(),
     });
   };
@@ -264,6 +313,7 @@ export const JadwalLiveView: React.FC<JadwalLiveViewProps> = ({
             });
           }}
           onParticipantAction={handleParticipantAction}
+          onBulkAction={handleBulkProctorAction}
         />
       )}
 

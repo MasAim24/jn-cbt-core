@@ -16,6 +16,7 @@ import {
 import {
   ExamPacket,
   ExamSchedule,
+  ExamSubmission,
   Jenjang,
   NavTab,
   SchoolSettings,
@@ -47,6 +48,7 @@ interface LoginPortalViewProps {
   teachers: Teacher[];
   schedules: ExamSchedule[];
   packets: ExamPacket[];
+  submissions?: ExamSubmission[];
   settings: SchoolSettings;
   onLoginSuccess: (session: AuthenticatedSession) => void;
 }
@@ -56,6 +58,7 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
   teachers,
   schedules,
   packets,
+  submissions = [],
   settings,
   onLoginSuccess,
 }) => {
@@ -133,6 +136,20 @@ export const LoginPortalView: React.FC<LoginPortalViewProps> = ({
       packets.find((p) => p.id === validSchedule?.packetId) ||
       packets.find((p) => p.jenjang === matchedStudent.jenjang) ||
       packets[0];
+
+    const alreadySubmitted = submissions.some(
+      (sub) =>
+        (sub.studentId === matchedStudent.id ||
+          sub.nomorPeserta.toLowerCase() === matchedStudent.nomorPeserta.toLowerCase()) &&
+        sub.packetId === targetPacket?.id
+    );
+
+    if (alreadySubmitted) {
+      setErrorMsg(
+        `Peserta ${matchedStudent.nama} (${matchedStudent.nomorPeserta}) telah menyelesaikan dan mengumpulkan ujian untuk paket "${targetPacket?.title || 'ini'}". Hubungi Pengawas Ruang jika memerlukan izin ujian ulang.`
+      );
+      return;
+    }
 
     onLoginSuccess({
       role: 'siswa',

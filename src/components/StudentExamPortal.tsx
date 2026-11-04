@@ -132,6 +132,20 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           setProctorToast(`Siaran Pengawas Baru: "${msg.announcement}"`);
           setTimeout(() => setProctorToast(null), 5000);
         }
+      } else if (
+        msg.type === 'PROCTOR_BULK_ACTION' &&
+        (msg.scheduleId === matchingSchedule?.id || msg.packetId === activePacket?.id)
+      ) {
+        if (msg.action === 'BULK_RESET_LOGIN') {
+          setViolationCount(0);
+          setProctorToast('Pengawas Ruang membuka kunci anti-cheat seluruh peserta di ruang ini!');
+          setTimeout(() => setProctorToast(null), 4500);
+        } else if (msg.action === 'BULK_ADD_TIME') {
+          const bonusSecs = (msg.addedMinutes || 10) * 60;
+          setSecondsLeft((prev) => prev + bonusSecs);
+          setProctorToast('Pengawas Ruang menambahkan waktu +10 Menit untuk seluruh ruang!');
+          setTimeout(() => setProctorToast(null), 4500);
+        }
       } else if (msg.type === 'PROCTOR_ACTION') {
         const isTargetStudent =
           msg.studentId === matchingStudent?.id ||
@@ -139,9 +153,12 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           msg.scheduleId === matchingSchedule?.id;
         if (!isTargetStudent) return;
 
-        if (msg.action === 'RESET_LOGIN') {
+        if (msg.action === 'RESET_LOGIN' || msg.action === 'RESET_SUBMIT') {
           setViolationCount(0);
-          setProctorToast('Pengawas Ruang telah membuka kunci sesi ujian Anda!');
+          if (msg.action === 'RESET_SUBMIT') {
+            setIsSubmitted(false);
+          }
+          setProctorToast('Pengawas Ruang telah membuka kunci / mereset sesi ujian Anda!');
           setTimeout(() => setProctorToast(null), 4500);
         } else if (msg.action === 'ADD_TIME') {
           const bonusSecs = (msg.addedMinutes || 15) * 60;

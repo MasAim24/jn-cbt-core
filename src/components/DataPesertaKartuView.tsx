@@ -33,6 +33,7 @@ import {
   TeacherFormModal,
 } from './peserta/PesertaModals';
 import { OfficialPdfModal } from './common/OfficialPdfModal';
+import { AuthenticatedSession } from './auth/LoginPortalView';
 
 interface DataPesertaKartuViewProps {
   students: Student[];
@@ -47,6 +48,7 @@ interface DataPesertaKartuViewProps {
   onSaveTeacher: (t: Teacher) => void;
   onDeleteTeacher?: (id: string) => void;
   onSaveSettings?: (next: SchoolSettings) => void;
+  authSession?: AuthenticatedSession | null;
 }
 
 export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
@@ -62,8 +64,15 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   onSaveTeacher,
   onDeleteTeacher,
   onSaveSettings,
+  authSession,
 }) => {
   const [subTab, setSubTab] = useState<'SANTRI' | 'GURU' | 'KARTU' | 'PRESENSI'>('SANTRI');
+  const [scopeToKelasBinaan, setScopeToKelasBinaan] = useState(true);
+  const canManageTeacherAccounts =
+    !authSession ||
+    authSession.role === 'admin' ||
+    authSession.peran === 'Kepala Madrasah / Mudir' ||
+    authSession.peran === 'Koordinator Kurikulum';
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -102,6 +111,12 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
 
   const filteredStudents = students.filter((s) => {
     const matchJenjang = selectedJenjang === 'ALL' ? true : s.jenjang === selectedJenjang;
+    const matchWaliKelas =
+      authSession?.peran === 'Wali Kelas' &&
+      authSession.kelasBinaan &&
+      scopeToKelasBinaan
+        ? s.kelas.toLowerCase().includes(authSession.kelasBinaan.toLowerCase())
+        : true;
     const matchSearch =
       !searchQuery.trim() ||
       s.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -109,7 +124,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
       s.nisn.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.kelas.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.ruang.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchJenjang && matchSearch;
+    return matchJenjang && matchWaliKelas && matchSearch;
   });
 
   const filteredTeachers = teachers.filter((t) => {
@@ -377,17 +392,19 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
             <span>Database Santri Real ({filteredStudents.length})</span>
           </button>
 
-          <button
-            onClick={() => setSubTab('GURU')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold transition ${
-              subTab === 'GURU'
-                ? 'bg-[#211955] text-white'
-                : 'bg-surface text-text-muted hover:text-text-main'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>Akun Pejabat, Wali Kelas &amp; Guru ({filteredTeachers.length})</span>
-          </button>
+          {canManageTeacherAccounts && (
+            <button
+              onClick={() => setSubTab('GURU')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold transition ${
+                subTab === 'GURU'
+                  ? 'bg-[#211955] text-white'
+                  : 'bg-surface text-text-muted hover:text-text-main'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>Akun Pejabat, Wali Kelas &amp; Guru ({filteredTeachers.length})</span>
+            </button>
+          )}
 
           <button
             onClick={() => setSubTab('KARTU')}
@@ -414,6 +431,28 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
           </button>
         </div>
       </div>
+
+      {authSession?.peran === 'Wali Kelas' && authSession.kelasBinaan && (
+        <div className="no-print flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-teal-50/90 dark:bg-teal-950/40 border border-teal-200 text-xs">
+          <div>
+            <span className="font-extrabold text-[#087963]">
+              Filter Otomatis Wali Kelas ({authSession.kelasBinaan}):
+            </span>{' '}
+            <span className="text-text-main">
+              Menampilkan daftar santri, kartu ujian, dan presensi khusus kelas binaan Anda.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setScopeToKelasBinaan((prev) => !prev)}
+            className="px-3 py-1.5 rounded-xl bg-elevated border border-border-subtle font-extrabold text-[#087963] hover:bg-surface transition"
+          >
+            {scopeToKelasBinaan
+              ? 'Tampilkan Semua Kelas'
+              : `Fokus Kelas ${authSession.kelasBinaan}`}
+          </button>
+        </div>
+      )}
 
       {/* Filter & Search Bar */}
       <div className="no-print flex flex-wrap items-center justify-between gap-3">

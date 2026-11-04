@@ -22,7 +22,15 @@ export type LiveSyncMessage =
       packetId: string;
       studentId: string;
       nomorPeserta: string;
-      action: 'RESET_LOGIN' | 'ADD_TIME' | 'FORCE_SUBMIT';
+      action: 'RESET_LOGIN' | 'ADD_TIME' | 'FORCE_SUBMIT' | 'RESET_SUBMIT';
+      addedMinutes?: number;
+      timestamp: number;
+    }
+  | {
+      type: 'PROCTOR_BULK_ACTION';
+      scheduleId: string;
+      packetId: string;
+      action: 'BULK_RESET_LOGIN' | 'BULK_ADD_TIME';
       addedMinutes?: number;
       timestamp: number;
     }
@@ -35,8 +43,8 @@ export type LiveSyncMessage =
       timestamp: number;
     };
 
-const CHANNEL_NAME = 'jn_examcbtcore_live_sync_v2';
-const STORAGE_BUS_KEY = 'jn_cbt_live_event_bus_v2';
+const CHANNEL_NAME = 'jn_examcbtcore_live_sync_v3';
+const STORAGE_BUS_KEY = 'jn_cbt_live_event_bus_v3';
 const DOM_EVENT_NAME = 'jn-cbt-live-sync';
 
 let sharedChannel: BroadcastChannel | null = null;
@@ -57,7 +65,8 @@ function getChannel(): BroadcastChannel | null {
 
 /**
  * Publishes a real-time CBT synchronization event across all open tabs (via BroadcastChannel
- * and localStorage storage event) as well as within the current tab (via CustomEvent).
+ * and localStorage storage event), within the current tab (via CustomEvent),
+ * and across LAN devices via the SQLite Server Event Bus (/api/cbt/events).
  */
 export function publishLiveSyncEvent(message: LiveSyncMessage): void {
   try {
@@ -77,24 +86,39 @@ export function publishLiveSyncEvent(message: LiveSyncMessage): void {
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent<LiveSyncMessage>(DOM_EVENT_NAME, { detail: message }));
+    // Push to LAN SQLite Server Event Bus
+    fetch('/api/cbt/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message),
+    }).catch(() => {
+      // Offline / static fallback
+    });
   }
 }
 
 /**
- * Subscribes to real-time CBT synchronization events from both other browser tabs
- * and the current tab. Returns an unsubscribe cleanup function.
+ * Subscribes to real-time CBT synchronization events from other browser tabs,
+ * the current tab, and other devices on the school LAN via SQLite Event Bus polling.
  */
 export function subscribeLiveSyncEvents(
   handler: (message: LiveSyncMessage) => void
 ): () => void {
-  let lastProcessedTimestamp = 0;
+  const processedTimestamps = new Set<number>();
+  let latestServerTs = Date.now() - 5000;
 
   const processMessage = (msg: LiveSyncMessage | null | undefined) => {
     if (!msg || typeof msg !== 'object' || !msg.type) return;
-    // Deduplicate identical messages arriving via both BroadcastChannel and storage event
-    if (msg.timestamp && msg.timestamp === lastProcessedTimestamp) return;
     if (msg.timestamp) {
-      lastProcessedTimestamp = msg.timestamp;
+      if (processedTimestamps.has(msg.timestamp)) return;
+      processedTimestamps.add(msg.timestamp);
+      if (msg.timestamp > latestServerTs) {
+        latestServerTs = msg.timestamp;
+      }
+      if (processedTimestamps.size > 500) {
+        const first = processedTimestamps.values().next().value;
+        if (first !== undefined) processedTimestamps.delete(first);
+      }
     }
     handler(msg);
   };
@@ -127,9 +151,23 @@ export function subscribeLiveSyncEvents(
     processMessage(customEv.detail);
   };
 
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', handleStorage);
     window.addEventListener(DOM_EVENT_NAME, handleDomEvent);
+
+    pollTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/cbt/events?since=${latestServerTs}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.ok && Array.isArray(data.events)) {
+          data.events.forEach((ev: LiveSyncMessage) => processMessage(ev));
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    }, 3000);
   }
 
   return () => {
@@ -139,6 +177,9 @@ export function subscribeLiveSyncEvents(
       } catch {
         // Ignore close error
       }
+    }
+    if (pollTimer) {
+      clearInterval(pollTimer);
     }
     if (typeof window !== 'undefined') {
       window.removeEventListener('storage', handleStorage);

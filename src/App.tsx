@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ExamPacket,
   ExamSchedule,
@@ -28,12 +28,15 @@ import { DataPesertaKartuView } from './components/DataPesertaKartuView';
 import { RekapNilaiView } from './components/RekapNilaiView';
 import { PengaturanView } from './components/PengaturanView';
 import { StudentExamPortal } from './components/StudentExamPortal';
-import { MotionGraphicsShowcaseModal } from './components/showcase/MotionGraphicsShowcaseModal';
 import {
   AuthenticatedSession,
   LoginPortalView,
 } from './components/auth/LoginPortalView';
 import { subscribeLiveSyncEvents } from './utils/liveProctorSync';
+import {
+  loadStateFromSqlite,
+  saveStateToSqlite,
+} from './utils/sqliteApiClient';
 
 const STORAGE_KEYS = {
   PACKETS: 'jn_cbt_packets_v3',
@@ -94,10 +97,10 @@ export function App() {
     return saved?.studentId;
   });
   const [showGuideModal, setShowGuideModal] = useState(false);
-  const [showMotionShowcase, setShowMotionShowcase] = useState(false);
   const [darkMode, setDarkMode] = useState<boolean>(() =>
     loadFromStorage(STORAGE_KEYS.THEME, false)
   );
+  const sqliteReadyRef = useRef(false);
 
   // Persistent CBT State
   const [packets, setPackets] = useState<ExamPacket[]>(() =>
@@ -120,6 +123,102 @@ export function App() {
   );
 
   const currentSettings = settings[0] || INITIAL_SETTINGS;
+
+  // Purge any legacy dummy records if kept alive in HMR memory
+  useEffect(() => {
+    const legacyDummyStudents = new Set([
+      'std-mts-1',
+      'std-mts-2',
+      'std-mts-3',
+      'std-ma-1',
+      'std-ma-2',
+      'std-wst-1',
+      'std-wst-2',
+      'std-uly-1',
+      'std-uly-2',
+    ]);
+    const legacyDummyTeachers = new Set(['tch-1', 'tch-2', 'tch-3', 'tch-4']);
+    const legacyDummySubs = new Set(['sub-01', 'sub-02', 'sub-03', 'sub-04']);
+
+    setStudents((prev) =>
+      prev.some((s) => legacyDummyStudents.has(s.id))
+        ? prev.filter((s) => !legacyDummyStudents.has(s.id))
+        : prev
+    );
+    setTeachers((prev) =>
+      prev.some((t) => legacyDummyTeachers.has(t.id))
+        ? prev.filter((t) => !legacyDummyTeachers.has(t.id))
+        : prev
+    );
+    setSubmissions((prev) =>
+      prev.some((sub) => legacyDummySubs.has(sub.id))
+        ? prev.filter((sub) => !legacyDummySubs.has(sub.id))
+        : prev
+    );
+    setSchedules((prev) =>
+      prev.map((sch) => ({
+        ...sch,
+        liveParticipants: sch.liveParticipants.filter((lp) => !legacyDummyStudents.has(lp.studentId)),
+      }))
+    );
+  }, []);
+
+  // Hydrate or Seed Central School SQLite Server Database on mount
+  useEffect(() => {
+    let mounted = true;
+    loadStateFromSqlite().then((loaded) => {
+      if (!mounted || !loaded) {
+        sqliteReadyRef.current = true;
+        return;
+      }
+      if (loaded.empty) {
+        // First run: seed initial state into SQLite WAL database
+        saveStateToSqlite({
+          settings: currentSettings,
+          packets,
+          schedules,
+          students,
+          teachers,
+          submissions,
+        }).finally(() => {
+          sqliteReadyRef.current = true;
+        });
+      } else {
+        if (loaded.settings) setSettings([loaded.settings]);
+        if (Array.isArray(loaded.packets) && loaded.packets.length > 0) {
+          setPackets(loaded.packets);
+        }
+        if (Array.isArray(loaded.schedules) && loaded.schedules.length > 0) {
+          setSchedules(loaded.schedules);
+        }
+        if (Array.isArray(loaded.students)) setStudents(loaded.students);
+        if (Array.isArray(loaded.teachers)) setTeachers(loaded.teachers);
+        if (Array.isArray(loaded.submissions)) setSubmissions(loaded.submissions);
+        setTimeout(() => {
+          sqliteReadyRef.current = true;
+        }, 120);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Auto-sync state changes to Local SQLite Server Database (debounced 350ms)
+  useEffect(() => {
+    if (!sqliteReadyRef.current) return;
+    const timer = setTimeout(() => {
+      saveStateToSqlite({
+        settings: currentSettings,
+        packets,
+        schedules,
+        students,
+        teachers,
+        submissions,
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [packets, schedules, students, teachers, submissions, currentSettings]);
 
   // Sync to localStorage & theme attribute
   useEffect(() => {
@@ -322,6 +421,60 @@ export function App() {
     });
   };
 
+  const handleResetStudentSubmission = (studentId: string, packetId: string) => {
+    setSubmissions((prev) =>
+      prev.filter((item) => !(item.studentId === studentId && item.packetId === packetId))
+    );
+    setSchedules((prev) =>
+      prev.map((sch) => {
+        if (sch.packetId !== packetId) return sch;
+        const updatedList = sch.liveParticipants.map((p) =>
+          p.studentId === studentId
+            ? {
+                ...p,
+                status: 'MENGERJAKAN' as const,
+                violations: 0,
+                remainingMinutes: sch.durasiMenit,
+                lastActivity: 'Diizinkan Ujian Ulang',
+              }
+            : p
+        );
+        return {
+          ...sch,
+          selesaiCount: updatedList.filter((p) => p.status === 'SELESAI').length,
+          liveParticipants: updatedList,
+        };
+      })
+    );
+  };
+
+  const handleResetSubmissionRecord = (sub: ExamSubmission) => {
+    setSubmissions((prev) => prev.filter((item) => item.id !== sub.id));
+    handleResetStudentSubmission(sub.studentId, sub.packetId);
+  };
+
+  const handleChangeSelfPassword = (newPass: string) => {
+    if (!authSession) return;
+    if (authSession.role === 'admin') {
+      setSettings((prev) => [{ ...(prev[0] || INITIAL_SETTINGS), adminPassword: newPass }]);
+    } else if (authSession.role === 'guru') {
+      setTeachers((prev) =>
+        prev.map((t) => (t.id === authSession.id ? { ...t, password: newPass } : t))
+      );
+    }
+  };
+
+  const handleForceSyncSqlite = async () => {
+    await saveStateToSqlite({
+      settings: currentSettings,
+      packets,
+      schedules,
+      students,
+      teachers,
+      submissions,
+    });
+  };
+
   const handleOpenStudentSim = (packetId?: string) => {
     setStudentSimPacketId(packetId);
     setUserRole('siswa');
@@ -398,6 +551,7 @@ export function App() {
         teachers={teachers}
         schedules={schedules}
         packets={packets}
+        submissions={submissions}
         settings={currentSettings}
         onLoginSuccess={handleLoginSuccess}
       />
@@ -446,8 +600,8 @@ export function App() {
             onSetUserRole={setUserRole}
             darkMode={darkMode}
             onToggleDarkMode={() => setDarkMode((d) => !d)}
-            onOpenShowcase={() => setShowMotionShowcase(true)}
             authSession={authSession}
+            onChangeSelfPassword={handleChangeSelfPassword}
             onLogout={handleLogout}
           />
 
@@ -484,7 +638,6 @@ export function App() {
                     students={students}
                     submissions={submissions}
                     onRefreshToken={handleRefreshToken}
-                    onOpenShowcase={() => setShowMotionShowcase(true)}
                     authSession={authSession}
                   />
                 )}
@@ -498,6 +651,7 @@ export function App() {
                     onSavePacket={handleSavePacket}
                     onDeletePacket={handleDeletePacket}
                     onOpenStudentSim={handleOpenStudentSim}
+                    authSession={authSession}
                   />
                 )}
 
@@ -511,6 +665,7 @@ export function App() {
                     onDeleteSchedule={handleDeleteSchedule}
                     onRefreshToken={handleRefreshToken}
                     onOpenStudentSim={handleOpenStudentSim}
+                    onResetStudentSubmission={handleResetStudentSubmission}
                   />
                 )}
 
@@ -528,6 +683,7 @@ export function App() {
                     onSaveTeacher={handleSaveTeacher}
                     onDeleteTeacher={handleDeleteTeacher}
                     onSaveSettings={(next) => setSettings([next])}
+                    authSession={authSession}
                   />
                 )}
 
@@ -539,6 +695,8 @@ export function App() {
                     selectedJenjang={selectedJenjang}
                     onSelectJenjang={setSelectedJenjang}
                     onUpdateSubmission={handleUpdateSubmission}
+                    onResetSubmission={handleResetSubmissionRecord}
+                    authSession={authSession}
                   />
                 )}
 
@@ -559,6 +717,7 @@ export function App() {
                     onResetDemoData={handleResetDemoData}
                     onExportFullBackup={handleExportFullBackup}
                     onImportFullBackup={handleImportFullBackup}
+                    onForceSyncSqlite={handleForceSyncSqlite}
                   />
                 )}
               </>
@@ -570,10 +729,6 @@ export function App() {
       </div>
 
       <GuideModal isOpen={showGuideModal} onClose={() => setShowGuideModal(false)} />
-      <MotionGraphicsShowcaseModal
-        isOpen={showMotionShowcase}
-        onClose={() => setShowMotionShowcase(false)}
-      />
     </div>
   );
 }

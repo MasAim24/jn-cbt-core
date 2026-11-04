@@ -22,6 +22,7 @@ import { QuestionEditorModal } from './bank-soal/QuestionEditorModal';
 import { BulkImportQuestionModal, NewPacketModal } from './bank-soal/BankSoalModals';
 import { CornerTableSticker } from './common/CornerStickerBadge';
 import { OfficialPdfModal } from './common/OfficialPdfModal';
+import { AuthenticatedSession } from './auth/LoginPortalView';
 
 interface BankSoalViewProps {
   packets: ExamPacket[];
@@ -31,6 +32,7 @@ interface BankSoalViewProps {
   onSavePacket: (packet: ExamPacket) => void;
   onDeletePacket: (packetId: string) => void;
   onOpenStudentSim: (packetId: string) => void;
+  authSession?: AuthenticatedSession | null;
 }
 
 export const BankSoalView: React.FC<BankSoalViewProps> = ({
@@ -41,6 +43,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   onSavePacket,
   onDeletePacket,
   onOpenStudentSim,
+  authSession,
 }) => {
   const [activePacketId, setActivePacketId] = useState<string>(packets[0]?.id || '');
   const [questionTypeFilter, setQuestionTypeFilter] = useState<'ALL' | QuestionType>('ALL');
@@ -382,8 +385,12 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
         isOpen={showNewPacketModal}
         onClose={() => setShowNewPacketModal(false)}
         onCreatePacket={(created) => {
-          onSavePacket(created);
-          setActivePacketId(created.id);
+          const finalPacket =
+            authSession?.role === 'guru' && authSession.name
+              ? { ...created, guruNama: created.guruNama || authSession.name }
+              : created;
+          onSavePacket(finalPacket);
+          setActivePacketId(finalPacket.id);
         }}
       />
     </div>

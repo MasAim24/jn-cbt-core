@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { Bell, ChevronDown, Film, LogOut, Moon, Search, Sun } from 'lucide-react';
+import {
+  Bell,
+  CheckCircle2,
+  ChevronDown,
+  KeyRound,
+  LogOut,
+  Moon,
+  Search,
+  ShieldCheck,
+  Sun,
+} from 'lucide-react';
 import {
   ExamPacket,
   JenjangFilter,
@@ -20,8 +30,8 @@ interface TopHeaderBarProps {
   onSetUserRole: (role: UserRole) => void;
   darkMode: boolean;
   onToggleDarkMode: () => void;
-  onOpenShowcase?: () => void;
   authSession?: AuthenticatedSession | null;
+  onChangeSelfPassword?: (newPass: string) => void;
   onLogout?: () => void;
 }
 
@@ -35,12 +45,17 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   onSetUserRole,
   darkMode,
   onToggleDarkMode,
-  onOpenShowcase,
   authSession,
+  onChangeSelfPassword,
   onLogout,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showRoleMenu, setShowRoleMenu] = useState(false);
+  const [showPassForm, setShowPassForm] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [passSavedMsg, setPassSavedMsg] = useState(false);
+
+  const isMasterAdmin = !authSession || authSession.role === 'admin';
 
   const searchResults =
     searchQuery.trim().length > 1
@@ -78,9 +93,21 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
         ].slice(0, 6)
       : [];
 
+  const handleSaveSelfPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPasswordInput.trim() || !onChangeSelfPassword) return;
+    onChangeSelfPassword(newPasswordInput.trim());
+    setNewPasswordInput('');
+    setPassSavedMsg(true);
+    setTimeout(() => {
+      setPassSavedMsg(false);
+      setShowPassForm(false);
+    }, 1800);
+  };
+
   return (
     <header className="no-print flex flex-col md:flex-row md:items-center justify-between gap-4">
-      {/* Left Search Input Pill (matching "Search services..." in reference image) */}
+      {/* Left Search Input Pill */}
       <div className="relative flex-1 max-w-md">
         <div className="flex items-center gap-2.5 bg-elevated rounded-2xl px-4 py-2.5 shadow-card border border-border-subtle/60 focus-within:border-[var(--brand-text-accent)]">
           <Search className="w-4 h-4 text-text-muted shrink-0" />
@@ -136,18 +163,6 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
           ))}
         </div>
 
-        {/* Motion Graphics Community Video Showcase Button */}
-        {onOpenShowcase && (
-          <button
-            onClick={onOpenShowcase}
-            title="Putar & Rekam Video Generative Motion Graphics (Showcase Komunitas)"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-[#211955] hover:bg-[#2d2270] text-[#F8B478] text-xs font-extrabold transition shadow-card whitespace-nowrap"
-          >
-            <Film className="w-4 h-4 shrink-0" />
-            <span>Video Showcase</span>
-          </button>
-        )}
-
         {/* Light / Dark Mode Toggle */}
         <button
           onClick={onToggleDarkMode}
@@ -163,15 +178,19 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
 
         {/* Notification Bell */}
         <button
-          onClick={() => onNavigateTab('jadwal-live')}
-          title="Notifikasi Sesi Ujian"
+          onClick={() => {
+            if (!authSession?.allowedTabs || authSession.allowedTabs.includes('jadwal-live')) {
+              onNavigateTab('jadwal-live');
+            }
+          }}
+          title="Pantauan Jadwal & Sesi Ujian"
           className="relative p-2.5 rounded-2xl bg-elevated border border-border-subtle/60 text-text-main hover:border-[var(--brand-text-accent)] transition shadow-card"
         >
           <Bell className="w-4 h-4" />
-          <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#F0544F]" />
+          <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#14B894]" />
         </button>
 
-        {/* User Avatar & Role Switcher */}
+        {/* User Avatar & Locked Role Profile Menu */}
         <div className="relative">
           <button
             onClick={() => setShowRoleMenu((prev) => !prev)}
@@ -202,50 +221,106 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
           </button>
 
           {showRoleMenu && (
-            <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-elevated shadow-floating border border-border-subtle p-2 z-50 text-xs space-y-1">
-              <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-text-muted">
-                Ganti Peran Cepat
+            <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-elevated shadow-floating border border-border-subtle p-2.5 z-50 text-xs space-y-1.5">
+              <div className="px-3 py-2 rounded-xl bg-surface border border-border-subtle/60 space-y-0.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase text-[#087963]">
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>Sesi Terautentikasi (RBAC Aktif)</span>
+                </div>
+                <div className="font-extrabold text-text-main truncate">
+                  {authSession?.name || 'Administrator Utama CBT'}
+                </div>
+                <div className="text-[11px] text-text-muted truncate">
+                  {authSession?.badgeRole || 'Master Administrator CBT'}
+                </div>
               </div>
-              <button
-                onClick={() => {
-                  onSetUserRole('admin');
-                  setShowRoleMenu(false);
-                }}
-                className={`w-full text-left px-3 py-2 rounded-xl font-bold transition ${
-                  userRole === 'admin'
-                    ? 'bg-[#211955] text-white'
-                    : 'hover:bg-surface text-text-main'
-                }`}
-              >
-                🛡️ Admin / Operator Madrasah
-              </button>
-              <button
-                onClick={() => {
-                  onSetUserRole('guru');
-                  onNavigateTab('bank-soal');
-                  setShowRoleMenu(false);
-                }}
-                className={`w-full text-left px-3 py-2 rounded-xl font-bold transition ${
-                  userRole === 'guru'
-                    ? 'bg-[#211955] text-white'
-                    : 'hover:bg-surface text-text-main'
-                }`}
-              >
-                👨‍🏫 Portal Guru &amp; Pengawas
-              </button>
-              <button
-                onClick={() => {
-                  onSetUserRole('siswa');
-                  setShowRoleMenu(false);
-                }}
-                className={`w-full text-left px-3 py-2 rounded-xl font-bold transition ${
-                  userRole === 'siswa'
-                    ? 'bg-[#F8B478] text-[#1E1645]'
-                    : 'hover:bg-surface text-text-main'
-                }`}
-              >
-                🎓 Layar Simulasi Ujian Siswa
-              </button>
+
+              {isMasterAdmin && (
+                <>
+                  <div className="px-2 pt-1 text-[10px] font-extrabold uppercase text-text-muted">
+                    Mode Tampilan (Khusus Admin)
+                  </div>
+                  <button
+                    onClick={() => {
+                      onSetUserRole('admin');
+                      setShowRoleMenu(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-xl font-bold transition ${
+                      userRole === 'admin'
+                        ? 'bg-[#211955] text-white'
+                        : 'hover:bg-surface text-text-main'
+                    }`}
+                  >
+                    🛡️ Panel Pengelola Administrator
+                  </button>
+                  <button
+                    onClick={() => {
+                      onSetUserRole('siswa');
+                      setShowRoleMenu(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-xl font-bold transition ${
+                      userRole === 'siswa'
+                        ? 'bg-[#F8B478] text-[#1E1645]'
+                        : 'hover:bg-surface text-text-main'
+                    }`}
+                  >
+                    🎓 Pratinjau Simulasi Ujian Siswa
+                  </button>
+                </>
+              )}
+
+              {/* Change Self Password */}
+              {onChangeSelfPassword && (
+                <div className="pt-1 border-t border-border-subtle">
+                  {!showPassForm ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowPassForm(true)}
+                      className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-xl font-bold text-text-main hover:bg-surface transition"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-[#B85D19] shrink-0" />
+                      <span>Ubah Password Akun Saya</span>
+                    </button>
+                  ) : (
+                    <form onSubmit={handleSaveSelfPassword} className="p-2.5 rounded-xl bg-surface space-y-2">
+                      <label className="text-[11px] font-extrabold text-text-main block">
+                        Password Baru:
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        minLength={4}
+                        value={newPasswordInput}
+                        onChange={(e) => setNewPasswordInput(e.target.value)}
+                        placeholder="Minimal 4 karakter..."
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-elevated border border-border-subtle font-mono text-xs text-text-main"
+                      />
+                      {passSavedMsg ? (
+                        <div className="flex items-center gap-1 text-[11px] font-extrabold text-[#087963]">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Password berhasil diperbarui!</span>
+                        </div>
+                      ) : (
+                        <div className="flex justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setShowPassForm(false)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] text-text-muted font-bold"
+                          >
+                            Batal
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-3 py-1 rounded-lg bg-[#211955] text-white text-[11px] font-extrabold"
+                          >
+                            Simpan
+                          </button>
+                        </div>
+                      )}
+                    </form>
+                  )}
+                </div>
+              )}
 
               {onLogout && (
                 <>
@@ -258,7 +333,7 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
                     className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-xl font-extrabold text-[#D93834] hover:bg-red-50 transition"
                   >
                     <LogOut className="w-3.5 h-3.5 shrink-0" />
-                    <span>Keluar / Portal Login Resmi</span>
+                    <span>Keluar Sesi / Ganti Akun Login</span>
                   </button>
                 </>
               )}

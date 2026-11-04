@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   ListChecks,
   Printer,
+  RotateCcw,
   Search,
 } from 'lucide-react';
 import {
@@ -24,6 +25,7 @@ import { ItemAnalysisSection } from './rekap/ItemAnalysisSection';
 import { CornerTableSticker } from './common/CornerStickerBadge';
 import { OfficialPdfModal } from './common/OfficialPdfModal';
 import { OfficialPdfDocType } from '../utils/purePdfEngine';
+import { AuthenticatedSession } from './auth/LoginPortalView';
 
 interface RekapNilaiViewProps {
   submissions: ExamSubmission[];
@@ -32,6 +34,8 @@ interface RekapNilaiViewProps {
   selectedJenjang: JenjangFilter;
   onSelectJenjang: (j: JenjangFilter) => void;
   onUpdateSubmission: (updated: ExamSubmission) => void;
+  onResetSubmission?: (sub: ExamSubmission) => void;
+  authSession?: AuthenticatedSession | null;
 }
 
 export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
@@ -41,6 +45,8 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
   selectedJenjang,
   onSelectJenjang,
   onUpdateSubmission,
+  onResetSubmission,
+  authSession,
 }) => {
   const [gradingItem, setGradingItem] = useState<ExamSubmission | null>(null);
   const [esaiPoints, setEsaiPoints] = useState<number>(25);
@@ -50,10 +56,18 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'TABEL' | 'ANALISIS' | 'BUTIR_SOAL'>('TABEL');
   const [pdfModalDocType, setPdfModalDocType] = useState<OfficialPdfDocType | null>(null);
+  const [scopeToKelasBinaan, setScopeToKelasBinaan] = useState(true);
 
-  const baseByJenjang = submissions.filter((s) =>
-    selectedJenjang === 'ALL' ? true : s.jenjang === selectedJenjang
-  );
+  const baseByJenjang = submissions.filter((s) => {
+    const matchJenjang = selectedJenjang === 'ALL' ? true : s.jenjang === selectedJenjang;
+    const matchWaliKelas =
+      authSession?.peran === 'Wali Kelas' &&
+      authSession.kelasBinaan &&
+      scopeToKelasBinaan
+        ? s.kelas.toLowerCase().includes(authSession.kelasBinaan.toLowerCase())
+        : true;
+    return matchJenjang && matchWaliKelas;
+  });
 
   const filtered = baseByJenjang.filter((s) => {
     const matchStatus =
@@ -267,6 +281,28 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
       </div>
 
       {/* Filter Pills & Search */}
+      {authSession?.peran === 'Wali Kelas' && authSession.kelasBinaan && (
+        <div className="no-print flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-teal-50/90 dark:bg-teal-950/40 border border-teal-200 text-xs">
+          <div>
+            <span className="font-extrabold text-[#087963]">
+              Rekap Nilai Kelas Binaan ({authSession.kelasBinaan}):
+            </span>{' '}
+            <span className="text-text-main">
+              Menampilkan hasil nilai ujian dan leger peringkat khusus kelas binaan Anda.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setScopeToKelasBinaan((prev) => !prev)}
+            className="px-3 py-1.5 rounded-xl bg-elevated border border-border-subtle font-extrabold text-[#087963] hover:bg-surface transition"
+          >
+            {scopeToKelasBinaan
+              ? 'Tampilkan Semua Kelas'
+              : `Fokus Kelas ${authSession.kelasBinaan}`}
+          </button>
+        </div>
+      )}
+
       <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {(['ALL', 'MTs', 'MA', 'Wustho', 'Ulya'] as JenjangFilter[]).map((j) => (
@@ -359,10 +395,18 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
               <th className="py-3 px-3 text-center">Esai/Tarkib</th>
               <th className="py-3 px-3 text-center">Nilai Akhir</th>
               <th className="py-3 px-3 text-center">Status KKM</th>
-              <th className="no-print py-3 px-3 text-right">Koreksi Esai</th>
+              <th className="no-print py-3 px-3 text-right">Koreksi &amp; Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-subtle/60">
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={9} className="py-10 text-center text-xs text-text-muted">
+                  Belum ada data rekap nilai ujian yang masuk pada filter ini. Nilai akan otomatis
+                  masuk saat santri menyelesaikan sesi ujian CBT.
+                </td>
+              </tr>
+            )}
             {filtered.map((sub) => {
               const meta = JENJANG_META[sub.jenjang];
               const isPassed = sub.totalScore >= sub.kkm;
@@ -422,13 +466,25 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
                     )}
                   </td>
                   <td className="no-print py-3.5 px-3 text-right whitespace-nowrap">
-                    <button
-                      onClick={() => openGradeModal(sub)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-[#B85D19] font-extrabold text-xs whitespace-nowrap transition"
-                    >
-                      <Edit3 className="w-3.5 h-3.5 shrink-0" />
-                      <span>Nilai Esai</span>
-                    </button>
+                    <div className="inline-flex items-center gap-1.5">
+                      <button
+                        onClick={() => openGradeModal(sub)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-[#B85D19] font-extrabold text-xs whitespace-nowrap transition"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                        <span>Nilai Esai</span>
+                      </button>
+                      {onResetSubmission && (
+                        <button
+                          onClick={() => onResetSubmission(sub)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-[#D93834] font-extrabold text-xs whitespace-nowrap transition"
+                          title="Hapus nilai ini & izinkan santri mengerjakan ulang paket ujian ini"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                          <span>Reset Ujian</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

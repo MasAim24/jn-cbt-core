@@ -31,3 +31,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+
+# SQLite WAL shared memory & journal runtime files
+database/*.sqlite-wal
+database/*.sqlite-shm

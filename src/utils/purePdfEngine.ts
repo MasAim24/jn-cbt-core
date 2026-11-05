@@ -1022,6 +1022,17 @@ export function renderNaskahSoalPages(
           y + 22
         );
         y += 34;
+      } else if (q.type === 'MENJODOHKAN' && q.matchingPairs) {
+        q.matchingPairs.forEach((pair, pIdx) => {
+          ctx.fillStyle = '#087963';
+          ctx.font = '800 17px "Plus Jakarta Sans", sans-serif';
+          ctx.fillText(
+            `${pIdx + 1}.  ${pair.leftText}   <-->   ${pair.rightText}   [✓ KUNCI PASANGAN]`,
+            marginX + 28,
+            y + 22
+          );
+          y += 30;
+        });
       }
 
       if (q.pembahasan) {

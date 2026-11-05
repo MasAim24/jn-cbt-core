@@ -87,6 +87,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   const [pgkAnswers, setPgkAnswers] = useState<
     Record<string, ('A' | 'B' | 'C' | 'D' | 'E')[]>
   >({});
+  const [matchingAnswers, setMatchingAnswers] = useState<Record<string, Record<string, string>>>({});
   const [bsAnswers, setBsAnswers] = useState<Record<string, boolean>>({});
   const [esaiAnswers, setEsaiAnswers] = useState<Record<string, string>>({});
   const [doubtFlags, setDoubtFlags] = useState<Record<string, boolean>>({});
@@ -111,6 +112,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
         if (saved && saved.packetId === activePacket.id) {
           if (saved.pgAnswers) setPgAnswers(saved.pgAnswers);
           if (saved.pgkAnswers) setPgkAnswers(saved.pgkAnswers);
+          if (saved.matchingAnswers) setMatchingAnswers(saved.matchingAnswers);
           if (saved.bsAnswers) setBsAnswers(saved.bsAnswers);
           if (saved.esaiAnswers) setEsaiAnswers(saved.esaiAnswers);
           if (saved.doubtFlags) setDoubtFlags(saved.doubtFlags);
@@ -147,6 +149,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           packetId: activePacket.id,
           pgAnswers,
           pgkAnswers,
+          matchingAnswers,
           bsAnswers,
           esaiAnswers,
           doubtFlags,
@@ -167,6 +170,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     isSubmitted,
     pgAnswers,
     pgkAnswers,
+    matchingAnswers,
     bsAnswers,
     esaiAnswers,
     doubtFlags,
@@ -260,6 +264,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
             setPgAnswers({});
             setPgkAnswers({});
             setBsAnswers({});
+            setMatchingAnswers({});
             setEsaiAnswers({});
             setDoubtFlags({});
             setCurrentIndex(0);
@@ -316,6 +321,12 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     if (q.type === 'PG') return Boolean(pgAnswers[q.id]);
     if (q.type === 'PG_KOMPLEKS') return (pgkAnswers[q.id]?.length || 0) > 0;
     if (q.type === 'BENAR_SALAH') return bsAnswers[q.id] !== undefined;
+    if (q.type === 'MENJODOHKAN') {
+      const pairs = q.matchingPairs || [];
+      if (pairs.length === 0) return false;
+      const ans = matchingAnswers[q.id] || {};
+      return pairs.some((p) => Boolean(ans[p.id]));
+    }
     if (q.type === 'ESAI') return Boolean(esaiAnswers[q.id]?.trim());
     return false;
   };
@@ -368,6 +379,18 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
         }
         if (bsAnswers[q.id] !== undefined && bsAnswers[q.id] === q.correctBoolean) {
           benarSalahScore += q.weight;
+        }
+      } else if (q.type === 'MENJODOHKAN') {
+        const pairs = q.matchingPairs || [];
+        const ansMap = matchingAnswers[q.id] || {};
+        if (Object.values(ansMap).some(Boolean)) {
+          itemResponses[q.id] = pairs
+            .map((p) => `${p.id}:${ansMap[p.id] || '-'}`)
+            .join('|');
+        }
+        if (pairs.length > 0) {
+          const correctPairs = pairs.filter((p) => ansMap[p.id] === p.rightText).length;
+          pgKompleksScore += Math.round((correctPairs / pairs.length) * q.weight);
         }
       } else if (q.type === 'ESAI') {
         const ans = (esaiAnswers[q.id] || '').trim();
@@ -659,6 +682,13 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
             onTogglePgk={togglePgkOption}
             bsAnswers={bsAnswers}
             onSelectBs={(qId, val) => setBsAnswers({ ...bsAnswers, [qId]: val })}
+            matchingAnswers={matchingAnswers}
+            onSelectMatch={(qId, pairId, rightText) =>
+              setMatchingAnswers((prev) => ({
+                ...prev,
+                [qId]: { ...(prev[qId] || {}), [pairId]: rightText },
+              }))
+            }
             esaiAnswers={esaiAnswers}
             onChangeEsai={(qId, val) => setEsaiAnswers({ ...esaiAnswers, [qId]: val })}
             doubtFlags={doubtFlags}

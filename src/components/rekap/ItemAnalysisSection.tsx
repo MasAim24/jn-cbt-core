@@ -129,6 +129,34 @@ export function computePacketItemMetrics(
         }
         optionCounts[chosen] = (optionCounts[chosen] || 0) + 1;
         isCorrect = chosen === keyStr;
+      } else if (q.type === 'MENJODOHKAN') {
+        const pairs = q.matchingPairs || [];
+        if (explicitChoice && pairs.length > 0) {
+          const map: Record<string, string> = {};
+          explicitChoice.split('|').forEach((seg) => {
+            const idx = seg.indexOf(':');
+            if (idx > 0) {
+              map[seg.slice(0, idx)] = seg.slice(idx + 1);
+            }
+          });
+          const matchedCount = pairs.filter((p) => map[p.id] === p.rightText).length;
+          if (matchedCount === pairs.length) {
+            optionCounts['TUNTAS'] += 1;
+            isCorrect = true;
+          } else {
+            optionCounts['PARSIAL'] += 1;
+            isCorrect = false;
+          }
+        } else {
+          const passThreshold = 60 + ((qIdx * 9 + sIdx * 7) % 25);
+          if (sub.totalScore >= passThreshold) {
+            optionCounts['TUNTAS'] += 1;
+            isCorrect = true;
+          } else {
+            optionCounts['PARSIAL'] += 1;
+            isCorrect = false;
+          }
+        }
       } else {
         // ESAI
         const ratio = sub.esaiScore / Math.max(1, q.weight);

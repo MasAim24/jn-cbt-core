@@ -4,12 +4,18 @@ export type JenjangFilter = 'ALL' | Jenjang;
 
 export type UserRole = 'admin' | 'guru' | 'siswa';
 
-export type QuestionType = 'PG' | 'PG_KOMPLEKS' | 'BENAR_SALAH' | 'ESAI';
+export type QuestionType = 'PG' | 'PG_KOMPLEKS' | 'MENJODOHKAN' | 'BENAR_SALAH' | 'ESAI';
 
 export interface QuestionOption {
   label: 'A' | 'B' | 'C' | 'D' | 'E';
   text: string;
   arabicText?: string;
+}
+
+export interface MatchingPair {
+  id: string;
+  leftText: string;
+  rightText: string;
 }
 
 export interface Question {
@@ -24,6 +30,7 @@ export interface Question {
   mediaAudioUrl?: string; // Base64 audio DataURL, external audio URL, or 'SYNTH_ISTIMA_...' preset
   mediaCaption?: string; // Caption for image/audio attachment
   options?: QuestionOption[];
+  matchingPairs?: MatchingPair[]; // For MENJODOHKAN (Premis Kiri <-> Pasangan Jawaban Kanan)
   correctAnswer?: 'A' | 'B' | 'C' | 'D' | 'E'; // For PG
   correctAnswers?: ('A' | 'B' | 'C' | 'D' | 'E')[]; // For PG_KOMPLEKS
   correctBoolean?: boolean; // For BENAR_SALAH (true = Benar / Shahih, false = Salah / Khatha')

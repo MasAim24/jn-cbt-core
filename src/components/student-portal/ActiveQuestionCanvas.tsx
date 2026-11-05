@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, Flag } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { ArrowLeft, ArrowLeftRight, ArrowRight, CheckCircle2, Flag } from 'lucide-react';
 import { Question } from '../../types/cbt';
 import { QuestionMediaAttachment } from '../common/QuestionMediaAttachment';
 
@@ -14,6 +14,8 @@ interface ActiveQuestionCanvasProps {
   onSelectPg: (qId: string, label: 'A' | 'B' | 'C' | 'D' | 'E') => void;
   pgkAnswers: Record<string, ('A' | 'B' | 'C' | 'D' | 'E')[]>;
   onTogglePgk: (qId: string, label: 'A' | 'B' | 'C' | 'D' | 'E') => void;
+  matchingAnswers: Record<string, Record<string, string>>;
+  onSelectMatch: (qId: string, pairId: string, rightText: string) => void;
   bsAnswers: Record<string, boolean>;
   onSelectBs: (qId: string, val: boolean) => void;
   esaiAnswers: Record<string, string>;
@@ -34,6 +36,8 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
   onSelectPg,
   pgkAnswers,
   onTogglePgk,
+  matchingAnswers,
+  onSelectMatch,
   bsAnswers,
   onSelectBs,
   esaiAnswers,
@@ -53,6 +57,27 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
   const bodySizeClass =
     fontScale === 'normal' ? 'text-sm' : fontScale === 'large' ? 'text-base' : 'text-lg';
 
+  const shuffledRightOptions = useMemo(() => {
+    const pairs = currentQuestion.matchingPairs || [];
+    const list = pairs.map((p) => p.rightText);
+    const seedStr = currentQuestion.id || 'seed';
+    let hash = 0;
+    for (let i = 0; i < seedStr.length; i++) {
+      hash = (hash * 31 + seedStr.charCodeAt(i)) >>> 0;
+    }
+    const copy = [...list];
+    for (let i = copy.length - 1; i > 0; i--) {
+      hash = (hash * 1664525 + 1013904223) >>> 0;
+      const j = hash % (i + 1);
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    // Ensure it's not identical to original order when length >= 2
+    if (copy.length >= 2 && copy.every((val, idx) => val === list[idx])) {
+      [copy[0], copy[copy.length - 1]] = [copy[copy.length - 1], copy[0]];
+    }
+    return copy;
+  }, [currentQuestion.id, currentQuestion.matchingPairs]);
+
   return (
     <div className="lg:col-span-8 rounded-[26px] bg-elevated p-6 sm:p-7 shadow-card border border-border-subtle/60 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-4">
@@ -65,6 +90,8 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
               ? 'Pilihan Ganda'
               : currentQuestion.type === 'PG_KOMPLEKS'
               ? 'Pilihan Ganda Kompleks (Pilih > 1)'
+              : currentQuestion.type === 'MENJODOHKAN'
+              ? 'Soal Menjodohkan / Mencocokkan Pasangan'
               : currentQuestion.type === 'BENAR_SALAH'
               ? 'Pernyataan Benar / Salah'
               : 'Soal Uraian / Tarkib Kitab'}
@@ -158,6 +185,90 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
               </button>
             );
           })}
+        </div>
+      )}
+
+      {currentQuestion.type === 'MENJODOHKAN' && currentQuestion.matchingPairs && (
+        <div className="space-y-3 pt-2">
+          <div className="rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-800 px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
+            <span className="font-extrabold text-[#211955] dark:text-indigo-200 flex items-center gap-1.5">
+              <ArrowLeftRight className="w-4 h-4 text-[#14B894] shrink-0" />
+              <span>
+                Petunjuk: Pilih pasangan jawaban yang tepat pada Kolom B untuk setiap pernyataan di
+                Kolom A.
+              </span>
+            </span>
+            <span className="px-2.5 py-0.5 rounded-full bg-[#211955] text-white text-[10px] font-extrabold whitespace-nowrap">
+              {
+                currentQuestion.matchingPairs.filter(
+                  (p) => Boolean(matchingAnswers[currentQuestion.id]?.[p.id])
+                ).length
+              }{' '}
+              / {currentQuestion.matchingPairs.length} Terjodohkan
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {currentQuestion.matchingPairs.map((pair, idx) => {
+              const selectedRight = matchingAnswers[currentQuestion.id]?.[pair.id] || '';
+              return (
+                <div
+                  key={pair.id || idx}
+                  className={`grid grid-cols-1 sm:grid-cols-12 gap-3 items-center p-4 rounded-2xl border transition ${
+                    selectedRight
+                      ? 'bg-teal-50/50 dark:bg-teal-950/30 border-[#14B894]'
+                      : 'bg-surface/70 border-border-subtle'
+                  }`}
+                >
+                  <div className="sm:col-span-6 flex items-start sm:items-center gap-3">
+                    <span
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-extrabold text-xs shrink-0 ${
+                        selectedRight
+                          ? 'bg-[#14B894] text-white'
+                          : 'bg-[#211955] text-white'
+                      }`}
+                    >
+                      {idx + 1}
+                    </span>
+                    <span className={`${bodySizeClass} font-bold text-text-main leading-snug`}>
+                      {pair.leftText}
+                    </span>
+                  </div>
+
+                  <div className="sm:col-span-1 flex items-center justify-center text-[#14B894] font-extrabold">
+                    <ArrowLeftRight className="w-4 h-4" />
+                  </div>
+
+                  <div className="sm:col-span-5">
+                    <select
+                      value={selectedRight}
+                      onChange={(e) =>
+                        onSelectMatch(currentQuestion.id, pair.id, e.target.value)
+                      }
+                      className={`w-full px-3.5 py-3 rounded-xl border text-xs sm:text-sm font-extrabold focus:outline-none transition ${
+                        selectedRight
+                          ? 'bg-[#211955] text-white border-[#211955] shadow-sm'
+                          : 'bg-elevated text-text-main border-border-subtle'
+                      }`}
+                    >
+                      <option value="" className="bg-elevated text-text-muted">
+                        -- Pilih Pasangan Jawaban (Kolom B) --
+                      </option>
+                      {shuffledRightOptions.map((optText, oIdx) => (
+                        <option
+                          key={`${optText}-${oIdx}`}
+                          value={optText}
+                          className="bg-elevated text-text-main"
+                        >
+                          {String.fromCharCode(65 + oIdx)}. {optText}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

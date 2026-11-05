@@ -26,6 +26,8 @@ export const QuestionCardItem: React.FC<QuestionCardItemProps> = ({
               ? 'Pilihan Ganda'
               : q.type === 'PG_KOMPLEKS'
               ? 'PG Kompleks (Multi-Jawaban)'
+              : q.type === 'MENJODOHKAN'
+              ? 'Menjodohkan (Mencocokkan Pasangan)'
               : q.type === 'BENAR_SALAH'
               ? 'Benar / Salah (Shahih / Khatha’)'
               : 'Uraian / Esai Kitab'}
@@ -129,6 +131,37 @@ export const QuestionCardItem: React.FC<QuestionCardItemProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Key for MENJODOHKAN */}
+      {q.type === 'MENJODOHKAN' && q.matchingPairs && q.matchingPairs.length > 0 && (
+        <div className="space-y-2 pt-1">
+          <div className="grid grid-cols-12 gap-2 px-3 py-1.5 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/40 text-[11px] font-extrabold text-[#211955] dark:text-indigo-200">
+            <div className="col-span-5">Kolom A (Pernyataan / Premis)</div>
+            <div className="col-span-2 text-center">Pasangan</div>
+            <div className="col-span-5">Kolom B (Kunci Jawaban)</div>
+          </div>
+          {q.matchingPairs.map((pair, idx) => (
+            <div
+              key={pair.id || idx}
+              className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center px-3.5 py-2.5 rounded-xl bg-surface/80 border border-border-subtle/70 text-xs"
+            >
+              <div className="sm:col-span-5 flex items-center gap-2 font-semibold text-text-main">
+                <span className="w-6 h-6 rounded-lg bg-[#211955] text-white font-extrabold text-[11px] flex items-center justify-center shrink-0">
+                  {idx + 1}
+                </span>
+                <span>{pair.leftText}</span>
+              </div>
+              <div className="sm:col-span-2 text-center text-[#14B894] font-extrabold text-xs">
+                &harr;
+              </div>
+              <div className="sm:col-span-5 flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-teal-50/90 dark:bg-teal-950/40 border border-[#14B894]/70 text-[#064D42] dark:text-teal-200 font-bold">
+                <span>{pair.rightText}</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#087963] shrink-0" />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

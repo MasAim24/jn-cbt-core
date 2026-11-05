@@ -173,7 +173,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
               </span>
             )}
             <span className="text-xs text-text-muted font-medium">
-              PG • PG Kompleks • Benar/Salah • Esai/Tarkib
+              PG • PG Kompleks • Menjodohkan • Benar/Salah • Esai/Tarkib
             </span>
           </div>
           <h1 className="text-xl font-extrabold text-text-main mt-1">
@@ -363,6 +363,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                     { id: 'ALL', label: `Semua Soal (${activePacket.questions.length})` },
                     { id: 'PG', label: 'Pilihan Ganda' },
                     { id: 'PG_KOMPLEKS', label: 'PG Kompleks' },
+                    { id: 'MENJODOHKAN', label: 'Menjodohkan' },
                     { id: 'BENAR_SALAH', label: 'Benar/Salah' },
                     { id: 'ESAI', label: 'Esai/Tarkib' },
                   ] as const

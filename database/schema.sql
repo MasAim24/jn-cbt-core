@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS cbt_questions (
   correct_answer TEXT,
   correct_answers_json TEXT,
   correct_boolean INTEGER,
+  matching_pairs_json TEXT,
   essay_rubric TEXT,
   weight INTEGER NOT NULL DEFAULT 25,
   pembahasan TEXT,

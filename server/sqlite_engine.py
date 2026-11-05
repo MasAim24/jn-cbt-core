@@ -48,6 +48,10 @@ def get_connection() -> sqlite3.Connection:
         conn.execute("ALTER TABLE cbt_packets ADD COLUMN guru_id TEXT;")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE cbt_questions ADD COLUMN matching_pairs_json TEXT;")
+    except sqlite3.OperationalError:
+        pass
     return conn
 
 
@@ -152,6 +156,8 @@ def cmd_load() -> dict:
                 q_obj["correctAnswers"] = json.loads(q["correct_answers_json"])
             if q["correct_boolean"] is not None:
                 q_obj["correctBoolean"] = bool(q["correct_boolean"])
+            if "matching_pairs_json" in q.keys() and q["matching_pairs_json"]:
+                q_obj["matchingPairs"] = json.loads(q["matching_pairs_json"])
             if q["essay_rubric"]:
                 q_obj["essayRubric"] = q["essay_rubric"]
             if q["pembahasan"]:
@@ -407,9 +413,9 @@ def cmd_save(payload: dict) -> dict:
                           id, packet_id, nomor, type, prompt, arabic_prompt,
                           kitab_reference, is_rtl, media_image_url, media_audio_url,
                           media_caption, options_json, correct_answer,
-                          correct_answers_json, correct_boolean, essay_rubric,
-                          weight, pembahasan
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          correct_answers_json, correct_boolean, matching_pairs_json,
+                          essay_rubric, weight, pembahasan
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             q["id"],
@@ -430,6 +436,9 @@ def cmd_save(payload: dict) -> dict:
                             else None,
                             (1 if q["correctBoolean"] else 0)
                             if "correctBoolean" in q and q["correctBoolean"] is not None
+                            else None,
+                            json.dumps(q["matchingPairs"])
+                            if q.get("matchingPairs")
                             else None,
                             q.get("essayRubric"),
                             int(q.get("weight", 25)),

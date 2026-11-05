@@ -1,7 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Headphones, Image as ImageIcon, Languages, Trash2, Upload, X } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  Headphones,
+  Image as ImageIcon,
+  Languages,
+  Plus,
+  Sparkles,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import {
   ExamPacket,
+  MatchingPair,
   Question,
   QuestionOption,
   QuestionType,
@@ -52,6 +63,11 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     { label: 'D', text: '' },
     { label: 'E', text: '' },
   ]);
+  const [qMatchingPairs, setQMatchingPairs] = useState<MatchingPair[]>([
+    { id: 'P1', leftText: '', rightText: '' },
+    { id: 'P2', leftText: '', rightText: '' },
+    { id: 'P3', leftText: '', rightText: '' },
+  ]);
   const [qCorrectPG, setQCorrectPG] = useState<'A' | 'B' | 'C' | 'D' | 'E'>('A');
   const [qCorrectPGK, setQCorrectPGK] = useState<('A' | 'B' | 'C' | 'D' | 'E')[]>(['A', 'B']);
   const [qCorrectBool, setQCorrectBool] = useState<boolean>(true);
@@ -74,6 +90,15 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
         return { label: lbl, text: found?.text || '' };
       });
       setQOptions(baseOpts);
+      setQMatchingPairs(
+        editingQuestion.matchingPairs && editingQuestion.matchingPairs.length >= 2
+          ? editingQuestion.matchingPairs
+          : [
+              { id: 'P1', leftText: '', rightText: '' },
+              { id: 'P2', leftText: '', rightText: '' },
+              { id: 'P3', leftText: '', rightText: '' },
+            ]
+      );
       setQCorrectPG(editingQuestion.correctAnswer || 'A');
       setQCorrectPGK(editingQuestion.correctAnswers || ['A', 'B']);
       setQCorrectBool(editingQuestion.correctBoolean ?? true);
@@ -94,6 +119,11 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
         { label: 'C', text: '' },
         { label: 'D', text: '' },
         { label: 'E', text: '' },
+      ]);
+      setQMatchingPairs([
+        { id: 'P1', leftText: '', rightText: '' },
+        { id: 'P2', leftText: '', rightText: '' },
+        { id: 'P3', leftText: '', rightText: '' },
       ]);
       setQCorrectPG('A');
       setQCorrectPGK(['A', 'B']);
@@ -150,6 +180,79 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     reader.readAsDataURL(file);
   };
 
+  const handleFillMatchingSample = () => {
+    if (activePacket.jenjang === 'Wustho' || activePacket.jenjang === 'Ulya') {
+      if (!qPrompt.trim()) {
+        setQPrompt(
+          'Pasangkanlah istilah hukum/gramatika kitab pada Kolom A dengan ta’rif atau contoh yang tepat pada Kolom B!'
+        );
+      }
+      setQMatchingPairs([
+        {
+          id: 'P1',
+          leftText: 'Marfu’at al-Asma’ (مَرْفُوْعَاتُ الْأَسْمَاءِ)',
+          rightText: 'Fa’il, Naibul Fa’il, Mubtada’ & Khabar',
+        },
+        {
+          id: 'P2',
+          leftText: 'Rukun Shalat Qauli (رُكْنٌ قَوْلِيٌّ)',
+          rightText: 'Takbiratul Ihram, Al-Fatihah & Tasyahud Akhir',
+        },
+        {
+          id: 'P3',
+          leftText: 'Tanda I’rab Jazm pada Fi’il Mudhari’ Shahih Akhir',
+          rightText: 'Sukun (السُّكُوْنُ)',
+        },
+      ]);
+    } else if (activePacket.jenjang === 'MA') {
+      if (!qPrompt.trim()) {
+        setQPrompt(
+          'Jodohkanlah pernyataan konsep keilmuan pada Kolom Premis (Kiri) dengan pasangan jawaban yang tepat pada Kolom Kanan!'
+        );
+      }
+      setQMatchingPairs([
+        {
+          id: 'P1',
+          leftText: 'Sumber hukum Islam ketiga setelah Al-Qur’an dan As-Sunnah',
+          rightText: 'Ijma’ Ulama (الإجماع)',
+        },
+        {
+          id: 'P2',
+          leftText: 'Organel sel yang berfungsi sebagai pusat respirasi & penghasil energi (ATP)',
+          rightText: 'Mitokondria',
+        },
+        {
+          id: 'P3',
+          leftText: 'Menetapkan hukum suatu perkara baru berdasarkan kesamaan ‘illat hukum',
+          rightText: 'Qiyas (القياس)',
+        },
+      ]);
+    } else {
+      if (!qPrompt.trim()) {
+        setQPrompt(
+          'Pasangkanlah pernyataan pada Kolom A (Kiri) dengan pasangan jawaban yang sesuai pada Kolom B (Kanan)!'
+        );
+      }
+      setQMatchingPairs([
+        {
+          id: 'P1',
+          leftText: 'Air suci dan menyucikan (Thahir Muthahhir)',
+          rightText: 'Air Mutlak (Hujan, Sumur, Sungai, Laut)',
+        },
+        {
+          id: 'P2',
+          leftText: 'Hukum bacaan Nun Mati / Tanwin bertemu huruf Ba (ب)',
+          rightText: 'Iqlab (إقلاب)',
+        },
+        {
+          id: 'P3',
+          leftText: 'Khalifah pertama dari Khulafaur Rasyidin',
+          rightText: 'Abu Bakar Ash-Shiddiq r.a.',
+        },
+      ]);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!qPrompt.trim()) return;
@@ -158,6 +261,12 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     const validOptions = qOptions.slice(0, activeOptionLimit).map((o) => ({
       ...o,
       text: o.text.trim() || `Pilihan ${o.label}`,
+    }));
+
+    const validMatchingPairs: MatchingPair[] = qMatchingPairs.map((pair, idx) => ({
+      id: pair.id || `P${idx + 1}`,
+      leftText: pair.leftText.trim() || `Pernyataan ${idx + 1}`,
+      rightText: pair.rightText.trim() || `Pasangan ${idx + 1}`,
     }));
 
     const newQ: Question = {
@@ -172,6 +281,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
       mediaAudioUrl: qMediaAudioUrl.trim() || undefined,
       mediaCaption: qMediaCaption.trim() || undefined,
       options: qType === 'PG' || qType === 'PG_KOMPLEKS' ? validOptions : undefined,
+      matchingPairs: qType === 'MENJODOHKAN' ? validMatchingPairs : undefined,
       correctAnswer: qType === 'PG' ? qCorrectPG : undefined,
       correctAnswers: qType === 'PG_KOMPLEKS' ? qCorrectPGK : undefined,
       correctBoolean: qType === 'BENAR_SALAH' ? qCorrectBool : undefined,
@@ -212,6 +322,9 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                 <option value="PG">Pilihan Ganda (Satu Jawaban Benar)</option>
                 <option value="PG_KOMPLEKS">
                   Pilihan Ganda Kompleks (Lebih dari Satu Jawaban)
+                </option>
+                <option value="MENJODOHKAN">
+                  Menjodohkan / Mencocokkan Pasangan (Semua Jenjang: MTs • MA • Wustho • &apos;Ulya)
                 </option>
                 <option value="BENAR_SALAH">Benar / Salah (Shahih / Khatha&apos;)</option>
                 <option value="ESAI">Uraian / Esai / Tarkib Kitab</option>
@@ -451,6 +564,114 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Dynamic Pairs for MENJODOHKAN (All Jenjangs: MTs, MA, Wustho, 'Ulya) */}
+          {qType === 'MENJODOHKAN' && (
+            <div className="rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <label className="font-extrabold text-[#211955] dark:text-indigo-200 flex items-center gap-1.5">
+                    <ArrowLeftRight className="w-4 h-4 text-[#14B894]" />
+                    <span>
+                      Daftar Pasangan Soal Menjodohkan ({qMatchingPairs.length} Pasang)
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    Isi pernyataan/premis di Kolom A (Kiri) dan pasangan jawaban benarnya di Kolom B
+                    (Kanan). Saat ujian, urutan Kolom B diacak otomatis dan dinilai proporsional.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleFillMatchingSample}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-[#B85D19] text-[11px] font-extrabold border border-amber-200 transition"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Contoh {activePacket.jenjang}</span>
+                  </button>
+                  {qMatchingPairs.length < 6 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQMatchingPairs((prev) => [
+                          ...prev,
+                          { id: `P${prev.length + 1}`, leftText: '', rightText: '' },
+                        ])
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-[11px] font-extrabold transition"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah Baris</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                {qMatchingPairs.map((pair, idx) => (
+                  <div
+                    key={pair.id || idx}
+                    className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-elevated p-2.5 rounded-xl border border-border-subtle"
+                  >
+                    <div className="sm:col-span-5 flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-lg bg-[#211955] text-white font-extrabold text-[11px] flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        value={pair.leftText}
+                        onChange={(e) => {
+                          const next = [...qMatchingPairs];
+                          next[idx] = { ...pair, leftText: e.target.value };
+                          setQMatchingPairs(next);
+                        }}
+                        placeholder={`Premis / Pernyataan ${idx + 1} (Kolom A)...`}
+                        className="w-full px-3 py-2 rounded-lg bg-surface border border-border-subtle text-text-main"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-1 flex items-center justify-center text-[#14B894] font-extrabold">
+                      <ArrowLeftRight className="w-4 h-4" />
+                    </div>
+
+                    <div className="sm:col-span-6 flex items-center gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={pair.rightText}
+                        onChange={(e) => {
+                          const next = [...qMatchingPairs];
+                          next[idx] = { ...pair, rightText: e.target.value };
+                          setQMatchingPairs(next);
+                        }}
+                        placeholder={`Pasangan Jawaban Benar ${idx + 1} (Kolom B)...`}
+                        className="flex-1 px-3 py-2 rounded-lg bg-teal-50/50 dark:bg-teal-950/30 border border-[#14B894]/60 text-text-main font-semibold"
+                      />
+                      {qMatchingPairs.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setQMatchingPairs((prev) =>
+                              prev
+                                .filter((_, i) => i !== idx)
+                                .map((item, i) => ({ ...item, id: `P${i + 1}` }))
+                            )
+                          }
+                          title="Hapus Pasangan"
+                          className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-[#D93834] shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

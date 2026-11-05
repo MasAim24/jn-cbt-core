@@ -380,7 +380,7 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
 
   const handleDownloadCsvTemplate = () => {
     const headers = [
-      'Tipe (PG/PG_KOMPLEKS/BENAR_SALAH/ESAI)',
+      'Tipe (PG/PG_KOMPLEKS/MENJODOHKAN/BENAR_SALAH/ESAI)',
       'Pertanyaan_Indonesia',
       'Matan_Arab_RTL',
       'Referensi_Kitab',
@@ -407,6 +407,20 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
         'A',
         '25',
         '"Menurut pendapat ashah dalam mazhab Syafi’i, shalat berjamaah hukumnya Fardhu Kifayah."',
+      ],
+      [
+        'MENJODOHKAN',
+        '"Pasangkanlah pernyataan pada Kolom A dengan pasangan jawaban yang tepat pada Kolom B!"',
+        '""',
+        '"Fiqih & Tajwid Dasar"',
+        '"Air suci menyucikan => Air Mutlak"',
+        '"Nun Mati bertemu Ba => Iqlab"',
+        '"Khalifah pertama => Abu Bakar Ash-Shiddiq"',
+        '""',
+        '""',
+        '"Air suci menyucikan => Air Mutlak; Nun Mati bertemu Ba => Iqlab; Khalifah pertama => Abu Bakar Ash-Shiddiq"',
+        '25',
+        '"Pasangan 1: Air Mutlak, Pasangan 2: Iqlab, Pasangan 3: Abu Bakar Ash-Shiddiq."',
       ],
       [
         'BENAR_SALAH',
@@ -454,11 +468,19 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
       q.options?.forEach((o) => {
         optMap[o.label] = o.text;
       });
+      if (q.type === 'MENJODOHKAN' && q.matchingPairs) {
+        const labels = ['A', 'B', 'C', 'D', 'E'];
+        q.matchingPairs.slice(0, 5).forEach((p, idx) => {
+          optMap[labels[idx]] = `${p.leftText} => ${p.rightText}`;
+        });
+      }
       const keyStr =
         q.type === 'PG'
           ? q.correctAnswer || 'A'
           : q.type === 'PG_KOMPLEKS'
           ? (q.correctAnswers || ['A', 'B']).join(';')
+          : q.type === 'MENJODOHKAN'
+          ? (q.matchingPairs || []).map((p) => `${p.leftText} => ${p.rightText}`).join('; ')
           : q.type === 'BENAR_SALAH'
           ? q.correctBoolean
             ? 'BENAR'
@@ -551,7 +573,9 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
           const cols = parseCsvRow(line);
           const rawType = (cols[0] || 'PG').toUpperCase();
           const type: QuestionType = (
-            ['PG', 'PG_KOMPLEKS', 'BENAR_SALAH', 'ESAI'].includes(rawType) ? rawType : 'PG'
+            ['PG', 'PG_KOMPLEKS', 'MENJODOHKAN', 'BENAR_SALAH', 'ESAI'].includes(rawType)
+              ? rawType
+              : 'PG'
           ) as QuestionType;
           const prompt = cols[1] || `Soal CSV #${idx + 1}`;
           const arabicPrompt = cols[2] || undefined;
@@ -578,6 +602,29 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
                 ]
               : undefined;
 
+          let matchingPairs = undefined;
+          if (type === 'MENJODOHKAN') {
+            const rawPairSource = keyRaw.includes('=>')
+              ? keyRaw.split(';')
+              : [cols[4], cols[5], cols[6], cols[7], cols[8]].filter((c) => c && c.includes('=>'));
+            const parsedPairs = rawPairSource
+              .map((chunk, pIdx) => {
+                const [l, r] = (chunk || '').split('=>').map((s) => s.trim());
+                if (!l || !r) return null;
+                return { id: `P${pIdx + 1}`, leftText: l, rightText: r };
+              })
+              .filter((item): item is { id: string; leftText: string; rightText: string } =>
+                Boolean(item)
+              );
+            matchingPairs =
+              parsedPairs.length >= 2
+                ? parsedPairs
+                : [
+                    { id: 'P1', leftText: optA, rightText: optB },
+                    { id: 'P2', leftText: optC, rightText: optD },
+                  ];
+          }
+
           return {
             id: `q-csv-${Date.now()}-${idx}`,
             nomor: activePacket.questions.length + idx + 1,
@@ -587,6 +634,7 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
             kitabReference,
             isRtl: Boolean(arabicPrompt),
             options,
+            matchingPairs,
             correctAnswer:
               type === 'PG'
                 ? ((['A', 'B', 'C', 'D', 'E'].includes(keyRaw.toUpperCase())

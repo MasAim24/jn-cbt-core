@@ -41,7 +41,7 @@ export const PortalResultReview: React.FC<PortalResultReviewProps> = ({
             </span>
           </div>
           <div className="p-3.5 rounded-2xl bg-surface">
-            <span className="text-text-muted block">PG Kompleks</span>
+            <span className="text-text-muted block">PGK / Jodoh</span>
             <span className="text-lg font-extrabold text-text-main">
               {lastSubmission.pgKompleksScore}
             </span>
@@ -102,6 +102,8 @@ export const PortalResultReview: React.FC<PortalResultReviewProps> = ({
                     ? 'PG Kompleks'
                     : q.type === 'BENAR_SALAH'
                     ? 'Benar / Salah'
+                    : q.type === 'MENJODOHKAN'
+                    ? 'Menjodohkan'
                     : 'Esai / Tarkib'}
                 </span>
                 <span className="font-bold text-[#087963] whitespace-nowrap">
@@ -117,6 +119,26 @@ export const PortalResultReview: React.FC<PortalResultReviewProps> = ({
                 </div>
               )}
               <p className="font-semibold text-text-main leading-relaxed">{q.prompt}</p>
+              {q.type === 'MENJODOHKAN' && q.matchingPairs && q.matchingPairs.length > 0 && (
+                <div className="pt-1.5 space-y-1">
+                  <span className="text-[11px] font-extrabold text-[#087963] block">
+                    Kunci Pasangan Jawaban:
+                  </span>
+                  {q.matchingPairs.map((pair, idx) => (
+                    <div
+                      key={pair.id}
+                      className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 text-[11px]"
+                    >
+                      <span className="font-semibold text-text-main">
+                        {idx + 1}. {pair.leftText}
+                      </span>
+                      <span className="font-extrabold text-[#087963] dark:text-teal-300">
+                        &rarr; {pair.rightText}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {q.pembahasan && (
                 <div className="pt-1.5 border-t border-border-subtle/50 text-text-muted leading-relaxed">
                   <strong className="text-text-main">Pembahasan: </strong>

@@ -44,6 +44,10 @@ def get_connection() -> sqlite3.Connection:
     if os.path.exists(SCHEMA_PATH):
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
+    try:
+        conn.execute("ALTER TABLE cbt_packets ADD COLUMN guru_id TEXT;")
+    except sqlite3.OperationalError:
+        pass
     return conn
 
 
@@ -154,22 +158,23 @@ def cmd_load() -> dict:
                 q_obj["pembahasan"] = q["pembahasan"]
             questions.append(q_obj)
 
-        packets.append(
-            {
-                "id": p["id"],
-                "code": p["code"],
-                "title": p["title"],
-                "mapel": p["mapel"],
-                "jenjang": p["jenjang"],
-                "kelas": p["kelas"],
-                "guruNama": p["guru_nama"],
-                "optionCount": int(p["option_count"]),
-                "kkm": int(p["kkm"]),
-                "hasArabicKitab": bool(p["has_arabic_kitab"]),
-                "updatedAt": p["updated_at"],
-                "questions": questions,
-            }
-        )
+        pkt_dict = {
+            "id": p["id"],
+            "code": p["code"],
+            "title": p["title"],
+            "mapel": p["mapel"],
+            "jenjang": p["jenjang"],
+            "kelas": p["kelas"],
+            "guruNama": p["guru_nama"],
+            "optionCount": int(p["option_count"]),
+            "kkm": int(p["kkm"]),
+            "hasArabicKitab": bool(p["has_arabic_kitab"]),
+            "updatedAt": p["updated_at"],
+            "questions": questions,
+        }
+        if "guru_id" in p.keys() and p["guru_id"]:
+            pkt_dict["guruId"] = p["guru_id"]
+        packets.append(pkt_dict)
 
     # Load schedules + live_participants
     schedule_rows = cur.execute("SELECT * FROM cbt_schedules").fetchall()
@@ -376,9 +381,9 @@ def cmd_save(payload: dict) -> dict:
                 cur.execute(
                     """
                     INSERT INTO cbt_packets (
-                      id, code, title, mapel, jenjang, kelas, guru_nama,
+                      id, code, title, mapel, jenjang, kelas, guru_id, guru_nama,
                       option_count, kkm, has_arabic_kitab, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         p["id"],
@@ -387,6 +392,7 @@ def cmd_save(payload: dict) -> dict:
                         p.get("mapel", ""),
                         p.get("jenjang", "MTs"),
                         p.get("kelas", ""),
+                        p.get("guruId"),
                         p.get("guruNama", ""),
                         int(p.get("optionCount", 4)),
                         int(p.get("kkm", 75)),

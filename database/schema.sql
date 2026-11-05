@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS cbt_packets (
   mapel TEXT NOT NULL,
   jenjang TEXT NOT NULL,
   kelas TEXT NOT NULL,
+  guru_id TEXT,
   guru_nama TEXT NOT NULL,
   option_count INTEGER NOT NULL DEFAULT 4,
   kkm INTEGER NOT NULL DEFAULT 75,

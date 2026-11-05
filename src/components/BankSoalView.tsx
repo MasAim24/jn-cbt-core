@@ -6,6 +6,7 @@ import {
   Plus,
   Printer,
   Search,
+  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import {
@@ -15,6 +16,7 @@ import {
   Question,
   QuestionType,
   SchoolSettings,
+  Teacher,
 } from '../types/cbt';
 import { INITIAL_SETTINGS, JENJANG_META } from '../data/initialData';
 import { PacketListSidebar } from './bank-soal/PacketListSidebar';
@@ -24,9 +26,11 @@ import { BulkImportQuestionModal, NewPacketModal } from './bank-soal/BankSoalMod
 import { CornerTableSticker } from './common/CornerStickerBadge';
 import { OfficialPdfModal } from './common/OfficialPdfModal';
 import { AuthenticatedSession } from './auth/LoginPortalView';
+import { canTeacherAccessPacket, isUnitManagerSession } from '../utils/rbacHelper';
 
 interface BankSoalViewProps {
   packets: ExamPacket[];
+  teachers?: Teacher[];
   settings?: SchoolSettings;
   selectedJenjang: JenjangFilter;
   onSelectJenjang: (j: JenjangFilter) => void;
@@ -38,6 +42,7 @@ interface BankSoalViewProps {
 
 export const BankSoalView: React.FC<BankSoalViewProps> = ({
   packets,
+  teachers = [],
   settings = INITIAL_SETTINGS,
   selectedJenjang,
   onSelectJenjang,
@@ -57,6 +62,9 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   const [bulkText, setBulkText] = useState('');
 
   const isGuruLocked = authSession?.role === 'guru';
+  const liveTeacher = isGuruLocked ? teachers.find((t) => t.id === authSession?.id) : undefined;
+  const isIsolatedGuruMapel = isGuruLocked && !isUnitManagerSession(authSession, liveTeacher);
+
   const allowedJenjangs: Jenjang[] = isGuruLocked
     ? authSession?.allowedJenjangs && authSession.allowedJenjangs.length > 0
       ? authSession.allowedJenjangs
@@ -67,6 +75,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
 
   const filteredPackets = packets.filter((p) => {
     if (!allowedJenjangs.includes(p.jenjang)) return false;
+    if (!canTeacherAccessPacket(p, authSession, liveTeacher)) return false;
     return selectedJenjang === 'ALL' ? true : p.jenjang === selectedJenjang;
   });
 
@@ -85,11 +94,14 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   });
 
   const handleDuplicatePacket = (pkt: ExamPacket) => {
+    if (!canTeacherAccessPacket(pkt, authSession, liveTeacher)) return;
     const cloned: ExamPacket = {
       ...pkt,
       id: `pkt-${Date.now()}`,
       code: `${pkt.code}-COPY`,
       title: `${pkt.title} (Salinan)`,
+      guruId: isIsolatedGuruMapel && authSession ? authSession.id : pkt.guruId,
+      guruNama: isIsolatedGuruMapel && authSession ? authSession.name : pkt.guruNama,
       updatedAt: 'Baru saja',
       questions: pkt.questions.map((q, idx) => ({
         ...q,
@@ -101,13 +113,15 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   };
 
   const handleSaveQuestion = (newQ: Question) => {
-    if (!activePacket) return;
+    if (!activePacket || !canTeacherAccessPacket(activePacket, authSession, liveTeacher)) return;
     const updatedQuestions = editingQuestion
       ? activePacket.questions.map((item) => (item.id === editingQuestion.id ? newQ : item))
       : [...activePacket.questions, newQ];
 
     onSavePacket({
       ...activePacket,
+      guruId:
+        activePacket.guruId || (isIsolatedGuruMapel && authSession ? authSession.id : undefined),
       updatedAt: 'Baru saja',
       questions: updatedQuestions.map((item, idx) => ({ ...item, nomor: idx + 1 })),
     });
@@ -116,21 +130,25 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   };
 
   const handleDeleteQuestion = (questionId: string) => {
-    if (!activePacket) return;
+    if (!activePacket || !canTeacherAccessPacket(activePacket, authSession, liveTeacher)) return;
     const remaining = activePacket.questions
       .filter((q) => q.id !== questionId)
       .map((q, idx) => ({ ...q, nomor: idx + 1 }));
     onSavePacket({
       ...activePacket,
+      guruId:
+        activePacket.guruId || (isIsolatedGuruMapel && authSession ? authSession.id : undefined),
       updatedAt: 'Baru saja',
       questions: remaining,
     });
   };
 
   const handleBulkImport = (imported: Question[]) => {
-    if (!activePacket) return;
+    if (!activePacket || !canTeacherAccessPacket(activePacket, authSession, liveTeacher)) return;
     onSavePacket({
       ...activePacket,
+      guruId:
+        activePacket.guruId || (isIsolatedGuruMapel && authSession ? authSession.id : undefined),
       updatedAt: 'Baru saja (Import Massal)',
       questions: [...activePacket.questions, ...imported].map((q, idx) => ({
         ...q,
@@ -148,6 +166,12 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-indigo-100 text-[#211955] whitespace-nowrap">
               Multi-Jenjang &amp; Kitab Ready
             </span>
+            {isIsolatedGuruMapel && authSession?.name && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-teal-50 text-[#087963] border border-[#14B894]/40 whitespace-nowrap">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Ruang Soal Pribadi: {authSession.name}</span>
+              </span>
+            )}
             <span className="text-xs text-text-muted font-medium">
               PG • PG Kompleks • Benar/Salah • Esai/Tarkib
             </span>
@@ -256,7 +280,10 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                     <span className="hidden sm:inline">PDF Naskah A4</span>
                   </button>
                   <button
-                    onClick={() => onDeletePacket(activePacket.id)}
+                    onClick={() => {
+                      if (!canTeacherAccessPacket(activePacket, authSession, liveTeacher)) return;
+                      onDeletePacket(activePacket.id);
+                    }}
                     title="Hapus Paket Soal"
                     className="p-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-[#D93834] transition"
                   >
@@ -381,11 +408,14 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
         ) : (
           <div className="lg:col-span-8 rounded-[24px] bg-elevated p-10 text-center shadow-card border border-dashed border-border-subtle space-y-3">
             <div className="text-sm font-extrabold text-text-main">
-              Belum Ada Paket Soal / Mata Pelajaran Ujian
+              {isIsolatedGuruMapel
+                ? `Belum Ada Paket Soal Milik ${authSession?.name || 'Anda'}`
+                : 'Belum Ada Paket Soal / Mata Pelajaran Ujian'}
             </div>
             <p className="text-xs text-text-muted max-w-md mx-auto leading-relaxed">
-              Seluruh paket soal dummy telah dibersihkan. Silakan buat paket soal ujian baru untuk
-              tingkat MTs, Madrasah Aliyah (MA), PDF Diniyah Wustho, atau Ma&apos;had &apos;Ulya.
+              {isIsolatedGuruMapel
+                ? 'Demi keamanan soal antar-pengampu, Anda hanya dapat melihat, mengedit, dan menghapus paket soal yang Anda buat sendiri. Silakan klik tombol di bawah untuk membuat paket soal Anda.'
+                : 'Seluruh paket soal dummy telah dibersihkan. Silakan buat paket soal ujian baru untuk tingkat MTs, Madrasah Aliyah (MA), PDF Diniyah Wustho, atau Ma’had ’Ulya.'}
             </p>
             <div className="pt-2">
               <button
@@ -443,11 +473,18 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
             : allowedJenjangs[0]
         }
         defaultMapel={authSession?.mapelAmpu}
+        defaultGuruId={isIsolatedGuruMapel ? authSession?.id : undefined}
         defaultGuruNama={authSession?.role === 'guru' ? authSession.name : undefined}
+        lockGuruIdentity={isIsolatedGuruMapel}
+        teachers={teachers}
         onCreatePacket={(created) => {
-          const finalPacket =
-            authSession?.role === 'guru' && authSession.name
-              ? { ...created, guruNama: created.guruNama || authSession.name }
+          const finalPacket: ExamPacket =
+            isIsolatedGuruMapel && authSession
+              ? {
+                  ...created,
+                  guruId: authSession.id,
+                  guruNama: authSession.name,
+                }
               : created;
           onSavePacket(finalPacket);
           setActivePacketId(finalPacket.id);

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Download, FileSpreadsheet, FileJson, Upload, X } from 'lucide-react';
-import { ExamPacket, Jenjang, Question, QuestionType } from '../../types/cbt';
+import { Download, FileSpreadsheet, FileJson, Lock, Upload, X } from 'lucide-react';
+import { ExamPacket, Jenjang, Question, QuestionType, Teacher } from '../../types/cbt';
 import { JENJANG_META } from '../../data/initialData';
 
 interface NewPacketModalProps {
@@ -10,7 +10,10 @@ interface NewPacketModalProps {
   allowedJenjangs?: Jenjang[];
   defaultJenjang?: Jenjang;
   defaultMapel?: string;
+  defaultGuruId?: string;
   defaultGuruNama?: string;
+  lockGuruIdentity?: boolean;
+  teachers?: Teacher[];
 }
 
 const ALL_JENJANG_OPTIONS: { value: Jenjang; label: string }[] = [
@@ -27,7 +30,10 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
   allowedJenjangs,
   defaultJenjang,
   defaultMapel,
+  defaultGuruId,
   defaultGuruNama,
+  lockGuruIdentity = false,
+  teachers = [],
 }) => {
   const effectiveJenjangs =
     allowedJenjangs && allowedJenjangs.length > 0
@@ -43,6 +49,7 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
   const [newMapel, setNewMapel] = useState('');
   const [newJenjang, setNewJenjang] = useState<Jenjang>(initialJenjang);
   const [newKelas, setNewKelas] = useState('VIII-A');
+  const [newGuruId, setNewGuruId] = useState<string | undefined>(defaultGuruId);
   const [newGuru, setNewGuru] = useState(defaultGuruNama || 'Tim Kurikulum / Guru Mapel');
   const [newOptionCount, setNewOptionCount] = useState<4 | 5>(
     JENJANG_META[initialJenjang].defaultOptions
@@ -58,14 +65,18 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
         : effectiveJenjangs[0]?.value || 'MTs';
     setNewJenjang(nextJ);
     setNewOptionCount(JENJANG_META[nextJ].defaultOptions);
+    setNewGuruId(defaultGuruId);
     if (defaultGuruNama) setNewGuru(defaultGuruNama);
+    if (defaultMapel && defaultMapel !== '-') setNewMapel((prev) => prev || defaultMapel);
     if (nextJ === 'MA') setNewKelas('X / XI / XII MA');
     else if (nextJ === 'MTs') setNewKelas('VII / VIII / IX MTs');
     else if (nextJ === 'Wustho') setNewKelas('Marhalah Wustho');
     else if (nextJ === 'Ulya') setNewKelas("Marhalah 'Ulya");
-  }, [isOpen, defaultJenjang, defaultGuruNama]);
+  }, [isOpen, defaultJenjang, defaultGuruId, defaultGuruNama, defaultMapel]);
 
   if (!isOpen) return null;
+
+  const unitTeachers = teachers.filter((t) => t.jenjangAmpu?.includes(newJenjang));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +84,8 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
     const lockedJenjang = effectiveJenjangs.some((o) => o.value === newJenjang)
       ? newJenjang
       : effectiveJenjangs[0]?.value || 'MTs';
+    const finalGuruId = lockGuruIdentity ? defaultGuruId : newGuruId;
+    const finalGuruNama = lockGuruIdentity && defaultGuruNama ? defaultGuruNama : newGuru.trim();
     const created: ExamPacket = {
       id: `pkt-${Date.now()}`,
       code: `CBT-${lockedJenjang.toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
@@ -80,7 +93,8 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
       mapel: newMapel.trim(),
       jenjang: lockedJenjang,
       kelas: newKelas.trim(),
-      guruNama: newGuru.trim(),
+      guruId: finalGuruId,
+      guruNama: finalGuruNama,
       optionCount: newOptionCount,
       kkm: Number(newKkm) || 75,
       hasArabicKitab: newHasArabic,
@@ -189,13 +203,56 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
             </div>
           </div>
 
-          <div>
-            <label className="font-bold text-text-main block mb-1">Guru / Ustadz Pengampu</label>
+          <div className="space-y-1.5">
+            <label className="font-bold text-text-main flex items-center justify-between">
+              <span>Guru / Ustadz Pengampu</span>
+              {lockGuruIdentity && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-[#087963]">
+                  <Lock className="w-3 h-3" />
+                  <span>Terkunci ke Akun Anda</span>
+                </span>
+              )}
+            </label>
+            {!lockGuruIdentity && unitTeachers.length > 0 && (
+              <select
+                value={newGuruId || ''}
+                onChange={(e) => {
+                  const selectedId = e.target.value;
+                  if (!selectedId) {
+                    setNewGuruId(undefined);
+                    return;
+                  }
+                  const t = unitTeachers.find((item) => item.id === selectedId);
+                  if (t) {
+                    setNewGuruId(t.id);
+                    setNewGuru(t.gelar ? `${t.nama}, ${t.gelar}` : t.nama);
+                    if (t.mapelAmpu && t.mapelAmpu !== '-' && !newMapel) {
+                      setNewMapel(t.mapelAmpu);
+                    }
+                  }
+                }}
+                className="w-full px-3.5 py-2 rounded-xl bg-surface border border-border-subtle text-text-main font-semibold"
+              >
+                <option value="">-- Pilih dari Daftar Akun Guru (Opsional) --</option>
+                {unitTeachers.map((t) => {
+                  const fullName = t.gelar ? `${t.nama}, ${t.gelar}` : t.nama;
+                  return (
+                    <option key={t.id} value={t.id}>
+                      {fullName} {t.mapelAmpu && t.mapelAmpu !== '-' ? `(${t.mapelAmpu})` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
             <input
               type="text"
               value={newGuru}
-              onChange={(e) => setNewGuru(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
+              readOnly={lockGuruIdentity}
+              disabled={lockGuruIdentity}
+              onChange={(e) => {
+                setNewGuru(e.target.value);
+              }}
+              className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main disabled:opacity-80 disabled:font-bold"
             />
           </div>
 

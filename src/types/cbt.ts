@@ -39,6 +39,7 @@ export interface ExamPacket {
   mapel: string;
   jenjang: Jenjang;
   kelas: string; // e.g., "VIII-A", "XII Keagamaan", " II Wustho", "III 'Ulya"
+  guruId?: string; // ID akun guru pembuat/pengampu paket soal
   guruNama: string;
   optionCount: 4 | 5; // 4 (A-D) or 5 (A-E)
   kkm: number;

@@ -34,6 +34,11 @@ import {
 } from './components/auth/LoginPortalView';
 import { subscribeLiveSyncEvents } from './utils/liveProctorSync';
 import {
+  canTeacherAccessPacket,
+  canTeacherAccessSubmission,
+  isUnitManagerSession,
+} from './utils/rbacHelper';
+import {
   isLocalSqliteHost,
   loadStateFromSqlite,
   saveStateToSqlite,
@@ -547,11 +552,30 @@ export function App() {
   // only the affected column in Supabase cbt_app_state (backed by a pending-patch journal).
   const handleSavePacket = (pkt: ExamPacket) => {
     sqliteReadyRef.current = true;
+    const liveTeacher =
+      authSession?.role === 'guru' ? teachers.find((t) => t.id === authSession.id) : undefined;
+    const isIsolatedGuru =
+      authSession?.role === 'guru' && !isUnitManagerSession(authSession, liveTeacher);
+
     setPackets((prev) => {
-      const exists = prev.some((item) => item.id === pkt.id);
-      const next = exists
-        ? prev.map((item) => (item.id === pkt.id ? pkt : item))
-        : [pkt, ...prev];
+      const existing = prev.find((item) => item.id === pkt.id);
+      if (existing && !canTeacherAccessPacket(existing, authSession, liveTeacher)) {
+        return prev;
+      }
+      const stamped: ExamPacket = {
+        ...pkt,
+        guruId:
+          existing?.guruId ||
+          pkt.guruId ||
+          (isIsolatedGuru && authSession ? authSession.id : undefined),
+        guruNama:
+          isIsolatedGuru && authSession && !existing?.guruNama
+            ? authSession.name
+            : pkt.guruNama || existing?.guruNama || '',
+      };
+      const next = existing
+        ? prev.map((item) => (item.id === stamped.id ? stamped : item))
+        : [stamped, ...prev];
       localStorage.setItem(STORAGE_KEYS.PACKETS, JSON.stringify(next));
       patchMasterColumnInSupabase({ packets_json: next });
       return next;
@@ -560,7 +584,14 @@ export function App() {
 
   const handleDeletePacket = (packetId: string) => {
     sqliteReadyRef.current = true;
+    const liveTeacher =
+      authSession?.role === 'guru' ? teachers.find((t) => t.id === authSession.id) : undefined;
+
     setPackets((prev) => {
+      const target = prev.find((item) => item.id === packetId);
+      if (target && !canTeacherAccessPacket(target, authSession, liveTeacher)) {
+        return prev;
+      }
       const next = prev.filter((item) => item.id !== packetId);
       localStorage.setItem(STORAGE_KEYS.PACKETS, JSON.stringify(next));
       patchMasterColumnInSupabase({ packets_json: next }, undefined, {
@@ -918,6 +949,12 @@ export function App() {
     authSession.role === 'guru'
       ? {
           ...authSession,
+          name: liveTeacherRecord
+            ? liveTeacherRecord.gelar
+              ? `${liveTeacherRecord.nama}, ${liveTeacherRecord.gelar}`
+              : liveTeacherRecord.nama
+            : authSession.name,
+          peran: liveTeacherRecord?.peran || authSession.peran,
           jenjang: liveTeacherRecord?.jenjangAmpu[0] || authSession.jenjang || 'MTs',
           allowedJenjangs:
             liveTeacherRecord?.jenjangAmpu && liveTeacherRecord.jenjangAmpu.length > 0
@@ -935,9 +972,11 @@ export function App() {
     effectiveAuthSession.role === 'guru' ? effectiveAuthSession.allowedJenjangs : undefined;
 
   const scopedPackets =
-    teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0
-      ? packets.filter((p) => teacherAllowedJenjangs.includes(p.jenjang))
+    effectiveAuthSession.role === 'guru'
+      ? packets.filter((p) => canTeacherAccessPacket(p, effectiveAuthSession, liveTeacherRecord))
       : packets;
+  const scopedPacketIds = new Set(scopedPackets.map((p) => p.id));
+
   const scopedSchedules =
     teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0
       ? schedules.filter((s) => teacherAllowedJenjangs.includes(s.jenjang))
@@ -947,8 +986,10 @@ export function App() {
       ? students.filter((s) => teacherAllowedJenjangs.includes(s.jenjang))
       : students;
   const scopedSubmissions =
-    teacherAllowedJenjangs && teacherAllowedJenjangs.length > 0
-      ? submissions.filter((s) => teacherAllowedJenjangs.includes(s.jenjang))
+    effectiveAuthSession.role === 'guru'
+      ? submissions.filter((s) =>
+          canTeacherAccessSubmission(s, scopedPacketIds, effectiveAuthSession, liveTeacherRecord)
+        )
       : submissions;
 
   const effectiveSelectedJenjang: JenjangFilter =
@@ -1061,6 +1102,7 @@ export function App() {
                 {activeTab === 'bank-soal' && (
                   <BankSoalView
                     packets={scopedPackets}
+                    teachers={teachers}
                     settings={currentSettings}
                     selectedJenjang={effectiveSelectedJenjang}
                     onSelectJenjang={handleSelectJenjang}

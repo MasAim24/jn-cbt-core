@@ -228,6 +228,7 @@ interface TeacherGridTabProps {
   onEditTeacher?: (t: Teacher) => void;
   onDeleteTeacher?: (id: string) => void;
   onQuickAddRole?: (role: TeacherPeran) => void;
+  onOpenBulkImportTeachers?: () => void;
 }
 
 export const TeacherGridTab: React.FC<TeacherGridTabProps> = ({
@@ -236,6 +237,7 @@ export const TeacherGridTab: React.FC<TeacherGridTabProps> = ({
   onEditTeacher,
   onDeleteTeacher,
   onQuickAddRole,
+  onOpenBulkImportTeachers,
 }) => {
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
@@ -266,6 +268,16 @@ export const TeacherGridTab: React.FC<TeacherGridTabProps> = ({
 
         {onQuickAddRole && (
           <div className="flex flex-wrap items-center gap-2">
+            {onOpenBulkImportTeachers && (
+              <button
+                type="button"
+                onClick={onOpenBulkImportTeachers}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#14B894] hover:bg-[#109e7f] text-white text-xs font-extrabold transition shadow-sm"
+              >
+                <FileUp className="w-3.5 h-3.5" />
+                <span>Import Excel / Masal Guru</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onQuickAddRole('Kepala Madrasah / Mudir')}
@@ -307,12 +319,22 @@ export const TeacherGridTab: React.FC<TeacherGridTabProps> = ({
               Seluruh data dummy guru telah dihapus. Dari akun Admin ini, Anda dapat menginput akun{' '}
               <strong>Kepala Madrasah / Kepala Diniyah (Mudir)</strong>,{' '}
               <strong>Wali Kelas</strong>, <strong>Guru Mapel</strong>, dan{' '}
-              <strong>Pengawas Ruang</strong> beserta username, password, dan hak akses menu login
-              masing-masing.
+              <strong>Pengawas Ruang</strong> secara manual atau masal menggunakan{' '}
+              <strong>Template Excel (.xlsx)</strong>.
             </p>
           </div>
           {onQuickAddRole && (
             <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+              {onOpenBulkImportTeachers && (
+                <button
+                  type="button"
+                  onClick={onOpenBulkImportTeachers}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#087963] hover:bg-[#066350] text-white text-xs font-extrabold shadow-sm transition"
+                >
+                  <FileUp className="w-3.5 h-3.5" />
+                  <span>Import Excel / Masal Guru</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onQuickAddRole('Kepala Madrasah / Mudir')}

@@ -29,10 +29,12 @@ import {
 } from './peserta/ExamCardPrintTab';
 import {
   BulkImportStudentModal,
+  BulkImportTeacherModal,
   ROLE_DEFAULT_TABS,
   StudentFormModal,
   TeacherFormModal,
 } from './peserta/PesertaModals';
+import { parseBulkTeacherText } from '../utils/excelTemplateHelper';
 import { OfficialPdfModal } from './common/OfficialPdfModal';
 import { AuthenticatedSession } from './auth/LoginPortalView';
 
@@ -47,6 +49,7 @@ interface DataPesertaKartuViewProps {
   onRegenerateAllPins?: () => void;
   onDeleteStudent: (id: string) => void;
   onSaveTeacher: (t: Teacher) => void;
+  onBulkSaveTeachers?: (list: Teacher[]) => void;
   onDeleteTeacher?: (id: string) => void;
   onSaveSettings?: (next: SchoolSettings) => void;
   authSession?: AuthenticatedSession | null;
@@ -63,6 +66,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   onRegenerateAllPins,
   onDeleteStudent,
   onSaveTeacher,
+  onBulkSaveTeachers,
   onDeleteTeacher,
   onSaveSettings,
   authSession,
@@ -84,6 +88,8 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
   const [bulkStudentText, setBulkStudentText] = useState('');
   const [showAddTeacher, setShowAddTeacher] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+  const [showBulkTeacherModal, setShowBulkTeacherModal] = useState(false);
+  const [bulkTeacherText, setBulkTeacherText] = useState('');
   const [pdfDocType, setPdfDocType] = useState<'KARTU_PESERTA' | 'PRESENSI_BERITA_ACARA' | null>(
     null
   );
@@ -406,6 +412,26 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
     setEditingTeacher(null);
   };
 
+  const handleBulkImportTeachers = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkTeacherText.trim()) return;
+    const defaultJenjang: Jenjang = selectedJenjang === 'ALL' ? 'MTs' : selectedJenjang;
+    const importedList = parseBulkTeacherText(
+      bulkTeacherText,
+      defaultJenjang,
+      teachers.length
+    );
+    if (importedList.length === 0) return;
+
+    if (onBulkSaveTeachers) {
+      onBulkSaveTeachers(importedList);
+    } else {
+      importedList.forEach((t) => onSaveTeacher(t));
+    }
+    setBulkTeacherText('');
+    setShowBulkTeacherModal(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Sub-navigation */}
@@ -596,13 +622,25 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
             </>
           )}
           {subTab === 'GURU' && (
-            <button
-              onClick={() => openAddTeacherModal('Guru Mapel')}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] text-white text-xs font-extrabold shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tambah Akun Pejabat / Guru</span>
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setBulkTeacherText('');
+                  setShowBulkTeacherModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#087963] text-xs font-extrabold transition"
+              >
+                <FileUp className="w-3.5 h-3.5" />
+                <span>Import Excel / Masal Guru</span>
+              </button>
+              <button
+                onClick={() => openAddTeacherModal('Guru Mapel')}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#211955] text-white text-xs font-extrabold shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tambah Akun Pejabat / Guru</span>
+              </button>
+            </>
           )}
           {(subTab === 'KARTU' || subTab === 'PRESENSI') && (
             <button
@@ -639,6 +677,10 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
           onEditTeacher={openEditTeacherModal}
           onDeleteTeacher={onDeleteTeacher}
           onQuickAddRole={(role) => openAddTeacherModal(role)}
+          onOpenBulkImportTeachers={() => {
+            setBulkTeacherText('');
+            setShowBulkTeacherModal(true);
+          }}
         />
       )}
 
@@ -664,6 +706,17 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
           onChangeText={setBulkStudentText}
           onSubmit={handleBulkImportStudents}
           onClose={() => setShowBulkStudentModal(false)}
+        />
+      )}
+
+      {showBulkTeacherModal && (
+        <BulkImportTeacherModal
+          bulkTeacherText={bulkTeacherText}
+          defaultJenjang={selectedJenjang === 'ALL' ? 'MTs' : selectedJenjang}
+          existingCount={teachers.length}
+          onChangeText={setBulkTeacherText}
+          onSubmit={handleBulkImportTeachers}
+          onClose={() => setShowBulkTeacherModal(false)}
         />
       )}
 

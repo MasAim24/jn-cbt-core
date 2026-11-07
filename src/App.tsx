@@ -703,6 +703,34 @@ export function App() {
     });
   };
 
+  const handleBulkSaveTeachers = (list: Teacher[]) => {
+    if (!list || list.length === 0) return;
+    sqliteReadyRef.current = true;
+    setTeachers((prev) => {
+      const byUsername = new Map(
+        prev.map((item) => [(item.username || '').toLowerCase(), item])
+      );
+      const added: Teacher[] = [];
+      const updatedIds = new Map<string, Teacher>();
+
+      for (const incoming of list) {
+        const uKey = (incoming.username || '').toLowerCase();
+        const existing = uKey ? byUsername.get(uKey) : undefined;
+        if (existing) {
+          updatedIds.set(existing.id, { ...incoming, id: existing.id });
+        } else {
+          added.push(incoming);
+        }
+      }
+
+      const mergedExisting = prev.map((item) => updatedIds.get(item.id) || item);
+      const next = [...added, ...mergedExisting];
+      localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(next));
+      patchMasterColumnInSupabase({ teachers_json: next });
+      return next;
+    });
+  };
+
   const handleDeleteTeacher = (id: string) => {
     sqliteReadyRef.current = true;
     setTeachers((prev) => {
@@ -1140,6 +1168,7 @@ export function App() {
                     onRegenerateAllPins={handleRegenerateAllPins}
                     onDeleteStudent={handleDeleteStudent}
                     onSaveTeacher={handleSaveTeacher}
+                    onBulkSaveTeachers={handleBulkSaveTeachers}
                     onDeleteTeacher={handleDeleteTeacher}
                     onSaveSettings={handleSaveSettings}
                     authSession={effectiveAuthSession}

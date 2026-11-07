@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   CheckSquare,
   Download,
+  FileSpreadsheet,
   KeyRound,
   ShieldCheck,
   Square,
@@ -18,6 +19,14 @@ import {
   TeacherPeran,
 } from '../../types/cbt';
 import { JENJANG_META } from '../../data/initialData';
+import {
+  downloadStudentExcelTemplate,
+  downloadTeacherCsvTemplate,
+  downloadTeacherExcelTemplate,
+  normalizeSpreadsheetTextToPipeLines,
+  parseBulkTeacherText,
+  readUploadedSpreadsheetFile,
+} from '../../utils/excelTemplateHelper';
 
 export const ROLE_DEFAULT_TABS: Record<TeacherPeran, NavTab[]> = {
   'Kepala Madrasah / Mudir': [
@@ -87,6 +96,7 @@ export const BulkImportStudentModal: React.FC<BulkImportStudentModalProps> = ({
   onClose,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
 
   const handleDownloadCsvTemplate = () => {
     const csvHeader =
@@ -108,33 +118,25 @@ export const BulkImportStudentModal: React.FC<BulkImportStudentModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const handleUploadCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const content = String(reader.result || '');
-      const lines = content
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      // Skip header line if it starts with "Nama Lengkap" or "nama"
-      const bodyLines = lines.filter(
-        (l, idx) =>
-          !(idx === 0 && l.toLowerCase().includes('nama') && l.toLowerCase().includes('jenjang'))
-      );
-      // Normalize comma or semicolon CSV into pipe format if no pipe exists
-      const normalized = bodyLines
-        .map((line) => {
-          if (line.includes('|')) return line;
-          if (line.includes(';')) return line.split(';').map((s) => s.trim()).join(' | ');
-          return line.split(',').map((s) => s.trim()).join(' | ');
-        })
-        .join('\n');
+    try {
+      const normalized = await readUploadedSpreadsheetFile(file, 7, 'nama');
       onChangeText(normalized);
-    };
-    reader.readAsText(file);
+      setUploadNotice(`File "${file.name}" berhasil dibaca.`);
+    } catch (err: any) {
+      setUploadNotice(err?.message || 'Gagal membaca file Excel/CSV.');
+    }
     e.target.value = '';
+  };
+
+  const handleTextChange = (raw: string) => {
+    if (raw.includes('\t')) {
+      onChangeText(normalizeSpreadsheetTextToPipeLines(raw, 7, 'nama'));
+    } else {
+      onChangeText(raw);
+    }
   };
 
   return (
@@ -143,11 +145,11 @@ export const BulkImportStudentModal: React.FC<BulkImportStudentModalProps> = ({
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-extrabold text-text-main">
-              Import Kolektif Database Santri / Siswa Real
+              Import Kolektif Database Santri / Siswa Real (Excel / CSV)
             </h3>
             <p className="text-xs text-text-muted mt-0.5">
-              Unggah file CSV/Excel atau tempelkan data santri dari lapangan untuk membuat Nomor
-              Peserta &amp; PIN otomatis.
+              Unggah file Excel (<code className="font-mono">.xlsx</code>) / CSV atau tempelkan
+              langsung blok tabel dari Excel untuk membuat Nomor Peserta &amp; PIN otomatis.
             </p>
           </div>
           <button
@@ -161,15 +163,26 @@ export const BulkImportStudentModal: React.FC<BulkImportStudentModalProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-2xl bg-surface border border-border-subtle text-xs">
           <div className="space-y-0.5">
             <div className="font-extrabold text-text-main">
-              Format Kolom (Pemisah <code className="px-1 rounded bg-elevated">|</code> atau{' '}
-              <code className="px-1 rounded bg-elevated">;</code> atau CSV):
+              Format Kolom Excel / CSV (Pemisah <code className="px-1 rounded bg-elevated">|</code>{' '}
+              atau Copy-Paste langsung dari Excel):
             </div>
             <div className="font-mono text-[11px] text-text-muted">
               Nama Lengkap | Jenjang (MTs/MA/Wustho/Ulya) | Kelas | Ruang | NISN | L/P | Sesi
             </div>
+            {uploadNotice && (
+              <div className="text-[11px] font-bold text-[#087963] pt-0.5">{uploadNotice}</div>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={downloadStudentExcelTemplate}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#087963] border border-teal-200 font-extrabold transition"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Template Excel (.xlsx)</span>
+            </button>
             <button
               type="button"
               onClick={handleDownloadCsvTemplate}
@@ -184,13 +197,13 @@ export const BulkImportStudentModal: React.FC<BulkImportStudentModalProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#211955] text-white font-extrabold transition"
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>Unggah File CSV/TXT</span>
+              <span>Unggah File Excel / CSV</span>
             </button>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,.txt"
-              onChange={handleUploadCsvFile}
+              accept=".xlsx,.csv,.txt"
+              onChange={handleUploadFile}
               className="hidden"
             />
           </div>
@@ -201,8 +214,8 @@ export const BulkImportStudentModal: React.FC<BulkImportStudentModalProps> = ({
             rows={7}
             required
             value={bulkStudentText}
-            onChange={(e) => onChangeText(e.target.value)}
-            placeholder="Tempelkan daftar santri real di sini...&#10;Contoh:&#10;Ahmad Zaki | MTs | VIII-A | Lab CBT 1 | 0098412001 | L | Sesi 1 (Pagi)"
+            onChange={(e) => handleTextChange(e.target.value)}
+            placeholder="Tempelkan (Ctrl+V) baris tabel dari Excel di sini...&#10;Contoh:&#10;Ahmad Zaki | MTs | VIII-A | Lab CBT 1 | 0098412001 | L | Sesi 1 (Pagi)"
             className="w-full p-3.5 rounded-2xl bg-surface border border-border-subtle text-text-main font-mono text-xs focus:outline-none focus:border-[var(--brand-text-accent)]"
           />
           <div className="flex items-center justify-between pt-1">
@@ -231,6 +244,243 @@ export const BulkImportStudentModal: React.FC<BulkImportStudentModalProps> = ({
                 className="px-5 py-2 rounded-xl bg-[#211955] text-white font-extrabold shadow-sm"
               >
                 Import ke Database Santri
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+interface BulkImportTeacherModalProps {
+  bulkTeacherText: string;
+  defaultJenjang: Jenjang;
+  existingCount: number;
+  onChangeText: (val: string) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onClose: () => void;
+}
+
+export const BulkImportTeacherModal: React.FC<BulkImportTeacherModalProps> = ({
+  bulkTeacherText,
+  defaultJenjang,
+  existingCount,
+  onChangeText,
+  onSubmit,
+  onClose,
+}) => {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+
+  const previewTeachers = parseBulkTeacherText(
+    bulkTeacherText,
+    defaultJenjang,
+    existingCount
+  );
+
+  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const normalized = await readUploadedSpreadsheetFile(file, 9, 'nama');
+      onChangeText(normalized);
+      setUploadNotice(`File "${file.name}" berhasil dimuat (${normalized.split('\n').filter(Boolean).length} baris guru).`);
+    } catch (err: any) {
+      setUploadNotice(err?.message || 'Gagal membaca file Excel/CSV.');
+    }
+    e.target.value = '';
+  };
+
+  const handleTextChange = (raw: string) => {
+    if (raw.includes('\t')) {
+      onChangeText(normalizeSpreadsheetTextToPipeLines(raw, 9, 'nama'));
+    } else {
+      onChangeText(raw);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-elevated rounded-[28px] max-w-4xl w-full p-6 shadow-floating border border-border-subtle space-y-4 my-6 max-h-[92vh] overflow-y-auto">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-[#087963] text-white flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-extrabold text-text-main">
+                Import Masal Akun Guru Mapel, Wali Kelas &amp; Pejabat (Excel / CSV)
+              </h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                Unduh <strong>Template Excel (.xlsx)</strong>, isi daftar guru di Microsoft Excel /
+                Google Sheets, lalu unggah kembali atau <em>Copy–Paste</em> langsung ke bawah ini.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-xl hover:bg-surface text-text-muted"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Panduan Kolom & Tombol Download/Upload Template */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 rounded-2xl bg-surface border border-border-subtle text-xs">
+          <div className="space-y-1">
+            <div className="font-extrabold text-text-main">
+              Urutan Kolom Template Excel (Kolom A s/d I):
+            </div>
+            <div className="font-mono text-[11px] text-text-muted leading-relaxed">
+              <strong className="text-[#211955] dark:text-[#F8B478]">1. Nama Lengkap*</strong> |{' '}
+              <strong className="text-[#211955] dark:text-[#F8B478]">2. Jenjang (MTs/MA/Wustho/Ulya)</strong>{' '}
+              | <strong className="text-[#211955] dark:text-[#F8B478]">3. Username</strong> |{' '}
+              <strong className="text-[#211955] dark:text-[#F8B478]">4. Password</strong> | 5. Mapel
+              (Opsional) | 6. Peran (Opsional) | 7. NIP | 8. No. WA | 9. Kelas Binaan
+            </div>
+            <div className="text-[11px] text-text-muted">
+              💡 <strong>Tips Cepat:</strong> Cukup isi{' '}
+              <strong>Nama Lengkap</strong> &amp; <strong>Jenjang</strong> saja di Excel — jika{' '}
+              <em>Username</em>, <em>Password</em>, atau <em>Mapel</em> dikosongkan, sistem akan
+              membuatkannya secara otomatis!
+            </div>
+            {uploadNotice && (
+              <div className="text-[11px] font-extrabold text-[#087963] pt-0.5">{uploadNotice}</div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={downloadTeacherExcelTemplate}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#087963] border border-teal-200 font-extrabold transition shadow-sm"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Download Template Excel (.xlsx)</span>
+            </button>
+            <button
+              type="button"
+              onClick={downloadTeacherCsvTemplate}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-elevated hover:bg-indigo-50 text-[#211955] border border-border-subtle font-extrabold transition"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Template CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white font-extrabold transition shadow-sm"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Unggah File Excel (.xlsx / .csv)</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.csv,.txt"
+              onChange={handleUploadFile}
+              className="hidden"
+            />
+          </div>
+        </div>
+
+        <form onSubmit={onSubmit} className="space-y-4 text-xs">
+          <div>
+            <label className="font-extrabold text-text-main block mb-1.5">
+              Data Baris Guru (Hasil Unggah Excel atau Copy–Paste Langsung dari Tabel Excel):
+            </label>
+            <textarea
+              rows={6}
+              required
+              value={bulkTeacherText}
+              onChange={(e) => handleTextChange(e.target.value)}
+              placeholder={
+                'Unggah file Excel (.xlsx) di atas, atau blok tabel di Excel lalu Copy-Paste (Ctrl+V) langsung ke sini...\nContoh:\nUst. H. Abdurrahman, Lc. | MA | guru_fiqih_ma | guru123 | Fiqih & Ushul Fiqih | Guru Mapel\nUstadzah Siti Aisyah, S.Pd. | MA | guru_bio_ma | guru123 | Biologi | Guru Mapel\nUst. Muhammad Syauqi, S.Pd.I. | MTs, MA | guru_arab | guru123'
+              }
+              className="w-full p-3.5 rounded-2xl bg-surface border border-border-subtle text-text-main font-mono text-xs focus:outline-none focus:border-[var(--brand-text-accent)]"
+            />
+          </div>
+
+          {/* Live Preview Table */}
+          {previewTeachers.length > 0 && (
+            <div className="rounded-2xl border border-border-subtle overflow-hidden bg-surface">
+              <div className="px-4 py-2.5 bg-elevated border-b border-border-subtle flex items-center justify-between">
+                <span className="font-extrabold text-text-main">
+                  Pratinjau Akun Guru Siap Import ({previewTeachers.length} Akun)
+                </span>
+                <span className="text-[11px] text-text-muted">
+                  Hak akses RBAC otomatis mengikuti peran masing-masing
+                </span>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                <table className="w-full text-left border-collapse text-[11px]">
+                  <thead>
+                    <tr className="bg-surface/80 text-text-muted border-b border-border-subtle">
+                      <th className="py-2 px-3 font-bold">#</th>
+                      <th className="py-2 px-3 font-bold">Nama Lengkap Guru</th>
+                      <th className="py-2 px-3 font-bold">Jenjang</th>
+                      <th className="py-2 px-3 font-bold">Username Login</th>
+                      <th className="py-2 px-3 font-bold">Password</th>
+                      <th className="py-2 px-3 font-bold">Mapel / Kitab</th>
+                      <th className="py-2 px-3 font-bold">Peran</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-subtle/60">
+                    {previewTeachers.map((t, idx) => (
+                      <tr key={t.id} className="hover:bg-elevated/60">
+                        <td className="py-2 px-3 font-mono text-text-muted">{idx + 1}</td>
+                        <td className="py-2 px-3 font-extrabold text-text-main">{t.nama}</td>
+                        <td className="py-2 px-3">
+                          <div className="flex flex-wrap gap-1">
+                            {t.jenjangAmpu.map((j) => (
+                              <span
+                                key={j}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-extrabold"
+                                style={{
+                                  backgroundColor: JENJANG_META[j].badgeBg,
+                                  color: JENJANG_META[j].badgeText,
+                                }}
+                              >
+                                {JENJANG_META[j].shortLabel}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 font-mono font-bold text-[#211955] dark:text-[#F8B478]">
+                          {t.username}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-text-main">{t.password}</td>
+                        <td className="py-2 px-3 text-text-muted">{t.mapelAmpu}</td>
+                        <td className="py-2 px-3 font-bold text-[#087963]">{t.peran}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[11px] text-text-muted">
+              Akun terdeteksi:{' '}
+              <strong className="text-text-main">{previewTeachers.length} akun guru/pejabat</strong>
+            </span>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl bg-surface text-text-muted font-bold"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={previewTeachers.length === 0}
+                className="px-5 py-2.5 rounded-xl bg-[#087963] hover:bg-[#066350] disabled:opacity-50 text-white font-extrabold shadow-sm transition"
+              >
+                Import {previewTeachers.length > 0 ? `${previewTeachers.length} ` : ''}Akun Guru ke
+                Sistem
               </button>
             </div>
           </div>

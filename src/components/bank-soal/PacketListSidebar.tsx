@@ -65,7 +65,21 @@ export const PacketListSidebar: React.FC<PacketListSidebarProps> = ({
 
             <div className="mt-3.5 pt-3 border-t border-current/10 flex flex-wrap items-center justify-between gap-2 text-[11px]">
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="font-bold">{pkt.questions.length} Butir Soal</span>
+                <span
+                  className={`px-2 py-0.5 rounded-md font-extrabold ${
+                    pkt.questions.length > 0
+                      ? isSelected
+                        ? 'bg-[#14B894] text-white'
+                        : 'bg-emerald-50 text-[#087963]'
+                      : isSelected
+                      ? 'bg-amber-400/20 text-amber-200'
+                      : 'bg-amber-50 text-[#B85D19]'
+                  }`}
+                >
+                  {pkt.questions.length > 0
+                    ? `${pkt.questions.length} Butir Soal`
+                    : '0 Soal (Kosong)'}
+                </span>
                 <span>•</span>
                 <span>Opsi A–{pkt.optionCount === 5 ? 'E' : 'D'}</span>
               </div>

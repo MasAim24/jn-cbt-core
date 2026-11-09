@@ -52,6 +52,8 @@ export interface ExamPacket {
   kkm: number;
   hasArabicKitab: boolean;
   updatedAt: string;
+  updatedAtMs?: number; // Monotonic timestamp (ms) for conflict-free cloud sync
+  deletedQuestionIds?: string[]; // Explicitly deleted question IDs to prevent resurrection
   questions: Question[];
 }
 

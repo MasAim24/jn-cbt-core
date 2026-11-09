@@ -8,10 +8,24 @@ const GENERIC_GURU_LABELS = new Set([
   'guru mapel',
   'ustadz pengampu',
   'pengampu',
+  'fleksibel (sesuai paket soal)',
+  'fleksibel',
+  'wali kelas / pembina romble',
+  'wali kelas / pembina rombel',
+  'wali kelas',
+  'kepala madrasah',
+  'pengawas cbt',
 ]);
 
 function normalizeText(val?: string): string {
   return (val || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function isGenericMapelLabel(val?: string): boolean {
+  const norm = normalizeText(val);
+  if (!norm || GENERIC_GURU_LABELS.has(norm)) return true;
+  if (norm.startsWith('fleksibel')) return true;
+  return false;
 }
 
 /**
@@ -90,7 +104,7 @@ export function canTeacherAccessPacket(
   // 3. Fallback when guruNama is generic ("Tim Kurikulum / Guru Mapel"): match by mapelAmpu if specified
   const teacherMapel = normalizeText(teacher?.mapelAmpu || session.mapelAmpu);
   const pktMapel = normalizeText(pkt.mapel);
-  if (teacherMapel && !GENERIC_GURU_LABELS.has(teacherMapel) && pktMapel === teacherMapel) {
+  if (teacherMapel && !isGenericMapelLabel(teacherMapel) && pktMapel === teacherMapel) {
     return true;
   }
 
@@ -139,7 +153,7 @@ export function canTeacherAccessSubmission(
 
   const teacherMapel = normalizeText(teacher?.mapelAmpu || session.mapelAmpu);
   const subMapel = normalizeText(sub.mapel);
-  if (teacherMapel && !GENERIC_GURU_LABELS.has(teacherMapel) && subMapel === teacherMapel) {
+  if (teacherMapel && !isGenericMapelLabel(teacherMapel) && subMapel === teacherMapel) {
     return true;
   }
 

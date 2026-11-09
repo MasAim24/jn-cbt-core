@@ -210,7 +210,7 @@ export async function checkSupabaseConnection(
   try {
     const stateRes = await fetch(
       `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=id,updated_at,packets_json,schedules_json,students_json,teachers_json`,
-      { headers: buildHeaders(cfg.anonKey) }
+      { headers: buildHeaders(cfg.anonKey), cache: 'no-store' }
     );
     if (!stateRes.ok) {
       const errText = await stateRes.text();
@@ -230,6 +230,7 @@ export async function checkSupabaseConnection(
 
     const subRes = await fetch(`${cfg.url}/rest/v1/cbt_submissions?select=id`, {
       headers: buildHeaders(cfg.anonKey),
+      cache: 'no-store',
     });
     const subRows = subRes.ok ? await subRes.json() : [];
 
@@ -291,12 +292,15 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
     const [stateRes, lpRes, subRes] = await Promise.all([
       fetch(`${activeCfg.url}/rest/v1/cbt_app_state?id=eq.1&select=*`, {
         headers: buildHeaders(activeCfg.anonKey),
+        cache: 'no-store',
       }),
       fetch(`${activeCfg.url}/rest/v1/cbt_live_participants?select=*`, {
         headers: buildHeaders(activeCfg.anonKey),
+        cache: 'no-store',
       }),
       fetch(`${activeCfg.url}/rest/v1/cbt_submissions?select=*&order=updated_at.desc`, {
         headers: buildHeaders(activeCfg.anonKey),
+        cache: 'no-store',
       }),
     ]);
 
@@ -415,8 +419,20 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
   }
 }
 
-const PENDING_PATCHES_KEY = 'jn_cbt_pending_cloud_patches_v1';
+const LEGACY_PENDING_PATCHES_KEY = 'jn_cbt_pending_cloud_patches_v1';
+const PENDING_PATCHES_KEY = 'jn_cbt_pending_cloud_patches_v2';
 const DELETED_IDS_KEY = 'jn_cbt_deleted_entity_ids_v1';
+const DIRTY_IDS_KEY = 'jn_cbt_dirty_entity_ids_v2';
+const PATCH_INFLIGHT_TS_KEY = 'jn_cbt_patch_inflight_ts_v1';
+
+// Purge legacy v1 full-array pending patches so stale snapshots can never overwrite cloud data
+try {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(LEGACY_PENDING_PATCHES_KEY);
+  }
+} catch {
+  // ignore storage errors
+}
 
 export interface MasterColumnsPatch {
   settings_json?: SchoolSettings;
@@ -426,12 +442,76 @@ export interface MasterColumnsPatch {
   teachers_json?: Teacher[];
 }
 
+export type ArrayColumnKey =
+  | 'packets_json'
+  | 'schedules_json'
+  | 'students_json'
+  | 'teachers_json';
+
 export interface PatchMasterOptions {
+  modifiedIds?: string[];
   deletedIds?: string[];
   replaceAll?: boolean;
 }
 
-function getDeletedEntityIds(): Set<string> {
+type DirtyEntityIdsMap = Partial<Record<ArrayColumnKey, string[]>>;
+
+let cloudMutationSeq = 0;
+let activePatchCount = 0;
+let patchQueuePromise: Promise<boolean> = Promise.resolve(true);
+const syncStateListeners = new Set<(inFlight: boolean) => void>();
+
+function notifySyncStateListeners(): void {
+  const inFlight = isCloudPatchInFlight();
+  syncStateListeners.forEach((cb) => {
+    try {
+      cb(inFlight);
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+export function subscribeCloudSyncState(cb: (inFlight: boolean) => void): () => void {
+  syncStateListeners.add(cb);
+  return () => {
+    syncStateListeners.delete(cb);
+  };
+}
+
+export function getCloudMutationSeq(): number {
+  return cloudMutationSeq;
+}
+
+export function isCloudPatchInFlight(): boolean {
+  if (activePatchCount > 0) return true;
+  try {
+    if (typeof window !== 'undefined') {
+      const ts = Number(localStorage.getItem(PATCH_INFLIGHT_TS_KEY) || 0);
+      if (ts > 0 && Date.now() - ts < 12000) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function setCrossTabPatchInFlight(active: boolean): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (active) {
+      localStorage.setItem(PATCH_INFLIGHT_TS_KEY, String(Date.now()));
+    } else {
+      localStorage.removeItem(PATCH_INFLIGHT_TS_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function getDeletedEntityIds(): Set<string> {
   try {
     if (typeof window === 'undefined') return new Set();
     const raw = localStorage.getItem(DELETED_IDS_KEY);
@@ -443,7 +523,7 @@ function getDeletedEntityIds(): Set<string> {
   }
 }
 
-function recordDeletedEntityIds(ids: string[]): Set<string> {
+export function recordDeletedEntityIds(ids: string[]): Set<string> {
   const current = getDeletedEntityIds();
   ids.forEach((id) => {
     if (id) current.add(id);
@@ -457,6 +537,63 @@ function recordDeletedEntityIds(ids: string[]): Set<string> {
     // ignore storage errors
   }
   return current;
+}
+
+function readDirtyIdsMap(): DirtyEntityIdsMap {
+  try {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem(DIRTY_IDS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as DirtyEntityIdsMap) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDirtyIdsMap(map: DirtyEntityIdsMap): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const cleaned: DirtyEntityIdsMap = {};
+    (Object.keys(map) as ArrayColumnKey[]).forEach((k) => {
+      const arr = map[k];
+      if (Array.isArray(arr) && arr.length > 0) {
+        cleaned[k] = Array.from(new Set(arr)).slice(-300);
+      }
+    });
+    if (Object.keys(cleaned).length === 0) {
+      localStorage.removeItem(DIRTY_IDS_KEY);
+    } else {
+      localStorage.setItem(DIRTY_IDS_KEY, JSON.stringify(cleaned));
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function getDirtyEntityIds(colKey: ArrayColumnKey): Set<string> {
+  const map = readDirtyIdsMap();
+  const list = map[colKey];
+  return new Set(Array.isArray(list) ? list : []);
+}
+
+function recordDirtyEntityIds(colKey: ArrayColumnKey, ids: string[]): Set<string> {
+  const map = readDirtyIdsMap();
+  const current = new Set(Array.isArray(map[colKey]) ? map[colKey] : []);
+  ids.forEach((id) => {
+    if (id) current.add(id);
+  });
+  map[colKey] = Array.from(current);
+  writeDirtyIdsMap(map);
+  return current;
+}
+
+function removeDirtyEntityIds(colKey: ArrayColumnKey, idsToRemove: string[]): void {
+  const map = readDirtyIdsMap();
+  const current = new Set(Array.isArray(map[colKey]) ? map[colKey] : []);
+  idsToRemove.forEach((id) => current.delete(id));
+  map[colKey] = Array.from(current);
+  writeDirtyIdsMap(map);
 }
 
 const LEGACY_DUMMY_ALL_IDS = new Set([
@@ -486,9 +623,148 @@ const LEGACY_DUMMY_ALL_IDS = new Set([
   'tch-4',
 ]);
 
+/**
+ * Non-destructively merges a single ExamPacket across local and remote states.
+ * Guarantees that questions are NEVER lost unless their IDs are explicitly recorded
+ * in `deletedQuestionIds` or `globalDeletedSet`.
+ */
+export function mergeSinglePacket(
+  localPkt: ExamPacket,
+  remotePkt: ExamPacket,
+  isLocalDirty: boolean,
+  globalDeletedSet: Set<string>
+): ExamPacket {
+  const deletedQIds = new Set<string>([
+    ...(localPkt.deletedQuestionIds || []),
+    ...(remotePkt.deletedQuestionIds || []),
+    ...Array.from(globalDeletedSet),
+  ]);
+
+  const localTs = localPkt.updatedAtMs || 0;
+  const remoteTs = remotePkt.updatedAtMs || 0;
+  const localQCount = Array.isArray(localPkt.questions) ? localPkt.questions.length : 0;
+  const remoteQCount = Array.isArray(remotePkt.questions) ? remotePkt.questions.length : 0;
+
+  const preferLocal =
+    isLocalDirty ||
+    localTs > remoteTs ||
+    (localTs === remoteTs && localQCount >= remoteQCount);
+
+  const primary = preferLocal ? localPkt : remotePkt;
+  const secondary = preferLocal ? remotePkt : localPkt;
+
+  const primaryQs = (primary.questions || []).filter(
+    (q) => q && q.id && !deletedQIds.has(q.id)
+  );
+  const primaryQIds = new Set(primaryQs.map((q) => q.id));
+  const secondaryExtraQs = (secondary.questions || []).filter(
+    (q) => q && q.id && !primaryQIds.has(q.id) && !deletedQIds.has(q.id)
+  );
+
+  const combinedQs = (
+    preferLocal && secondaryExtraQs.length > 0
+      ? [...secondaryExtraQs, ...primaryQs]
+      : [...primaryQs, ...secondaryExtraQs]
+  ).map((q, idx) => ({
+    ...q,
+    nomor: idx + 1,
+  }));
+
+  const mergedDeletedQIds = Array.from(deletedQIds).filter((id) => id.startsWith('q-'));
+
+  return {
+    ...secondary,
+    ...primary,
+    guruId: primary.guruId || secondary.guruId,
+    guruNama: primary.guruNama || secondary.guruNama,
+    updatedAtMs: Math.max(localTs, remoteTs) || undefined,
+    deletedQuestionIds:
+      mergedDeletedQIds.length > 0 ? mergedDeletedQIds.slice(-300) : undefined,
+    questions: combinedQs,
+  };
+}
+
+/**
+ * Merges local and remote ExamPacket arrays safely during hydration and background polling.
+ * - Preserves any unsaved local dirty packets (`dirtyIds`).
+ * - Recovers local questions if a remote packet was previously wiped to 0 questions (`recoveredPacketIds`).
+ * - Never resurrects packets deleted on other devices (packets absent from `remotePackets` and not in `dirtyIds`).
+ */
+export function mergePacketLists(
+  localPackets: ExamPacket[],
+  remotePackets: ExamPacket[],
+  customDirtyIds?: Set<string>,
+  customDeletedIds?: Set<string>
+): { packets: ExamPacket[]; recoveredPacketIds: string[] } {
+  const dirtySet = customDirtyIds || getDirtyEntityIds('packets_json');
+  const deletedSet = customDeletedIds || getDeletedEntityIds();
+  const localById = new Map<string, ExamPacket>();
+  for (const lp of localPackets || []) {
+    if (lp && lp.id && !deletedSet.has(lp.id) && !LEGACY_DUMMY_ALL_IDS.has(lp.id)) {
+      localById.set(lp.id, lp);
+    }
+  }
+
+  const remoteById = new Map<string, ExamPacket>();
+  const mergedList: ExamPacket[] = [];
+  const recoveredPacketIds: string[] = [];
+
+  for (const rp of remotePackets || []) {
+    if (!rp || !rp.id || deletedSet.has(rp.id) || LEGACY_DUMMY_ALL_IDS.has(rp.id)) {
+      continue;
+    }
+    remoteById.set(rp.id, rp);
+    const lp = localById.get(rp.id);
+    if (!lp) {
+      mergedList.push(rp);
+      continue;
+    }
+
+    const isDirty = dirtySet.has(rp.id);
+    const localTs = lp.updatedAtMs || 0;
+    const remoteTs = rp.updatedAtMs || 0;
+    const remoteQCount = Array.isArray(rp.questions) ? rp.questions.length : 0;
+
+    if (isDirty || (localTs > 0 && localTs > remoteTs)) {
+      const merged = mergeSinglePacket(lp, rp, true, deletedSet);
+      mergedList.push(merged);
+      if (merged.questions.length > remoteQCount) {
+        recoveredPacketIds.push(rp.id);
+      }
+    } else {
+      const merged = mergeSinglePacket(lp, rp, false, deletedSet);
+      if (remoteQCount === 0 && merged.questions.length > 0) {
+        recoveredPacketIds.push(rp.id);
+      }
+      mergedList.push(merged);
+    }
+  }
+
+  // Prepend any newly created local packets that are marked dirty and not yet in remote
+  const localOnlyDirty: ExamPacket[] = [];
+  for (const lp of localPackets || []) {
+    if (
+      lp &&
+      lp.id &&
+      !remoteById.has(lp.id) &&
+      !deletedSet.has(lp.id) &&
+      !LEGACY_DUMMY_ALL_IDS.has(lp.id) &&
+      dirtySet.has(lp.id)
+    ) {
+      localOnlyDirty.push(lp);
+    }
+  }
+
+  return {
+    packets: [...localOnlyDirty, ...mergedList],
+    recoveredPacketIds,
+  };
+}
+
 export function getPendingCloudPatches(): MasterColumnsPatch {
   try {
     if (typeof window === 'undefined') return {};
+    localStorage.removeItem(LEGACY_PENDING_PATCHES_KEY);
     const raw = localStorage.getItem(PENDING_PATCHES_KEY);
     if (!raw) return {};
     return JSON.parse(raw) as MasterColumnsPatch;
@@ -512,140 +788,297 @@ function setPendingCloudPatches(next: MasterColumnsPatch): void {
 
 /**
  * Immediately patches ONLY the modified column(s) in `cbt_app_state` (id = 1)
- * using Atomic Read-Merge-Write per item ID (so two teachers saving packets/schedules
- * concurrently on different devices never overwrite each other's items) and persists
- * a durable pending-patch journal in `localStorage`.
+ * using Serialized Per-Item Atomic Read-Merge-Write:
+ * - Only items explicitly modified on this device (`modifiedIds` / `dirtyIds`) are updated.
+ * - Items belonging to other teachers in `remoteRow` are preserved 100% untouched.
+ * - Within any modified ExamPacket, questions are merged non-destructively so concurrent
+ *   edits across tabs/devices never drop questions.
  */
 export async function patchMasterColumnInSupabase(
   columns: MasterColumnsPatch,
   customCfg?: SupabaseCloudConfig | null,
   options?: PatchMasterOptions
 ): Promise<boolean> {
-  const normalizedColumns: MasterColumnsPatch = { ...columns };
+  cloudMutationSeq += 1;
+  const normalizedInput: MasterColumnsPatch = { ...columns };
   const cfg = customCfg || getSupabaseConfig(columns.settings_json);
-  if (normalizedColumns.settings_json && cfg) {
-    normalizedColumns.settings_json = {
-      ...normalizedColumns.settings_json,
+  if (normalizedInput.settings_json && cfg) {
+    normalizedInput.settings_json = {
+      ...normalizedInput.settings_json,
       supabaseUrl: cfg.url,
       supabaseAnonKey: cfg.anonKey,
       syncMode: 'SUPABASE_HYBRID',
     };
   }
 
-  const deletedSet = options?.deletedIds?.length
-    ? recordDeletedEntityIds(options.deletedIds)
-    : getDeletedEntityIds();
+  if (options?.deletedIds?.length) {
+    recordDeletedEntityIds(options.deletedIds);
+    (['packets_json', 'schedules_json', 'students_json', 'teachers_json'] as const).forEach(
+      (colKey) => {
+        removeDirtyEntityIds(colKey, options.deletedIds!);
+      }
+    );
+  }
 
-  // Record in durable pending journal synchronously before network call
-  const snapshotBefore = { ...getPendingCloudPatches(), ...normalizedColumns };
+  const arrayColumnKeys = (
+    ['packets_json', 'schedules_json', 'students_json', 'teachers_json'] as const
+  ).filter((k) => Array.isArray(normalizedInput[k]));
+
+  if (options?.modifiedIds?.length) {
+    for (const colKey of arrayColumnKeys) {
+      recordDirtyEntityIds(colKey, options.modifiedIds);
+    }
+  }
+
+  // Record in durable pending journal synchronously before queuing network call
+  const snapshotBefore = { ...getPendingCloudPatches(), ...normalizedInput };
   setPendingCloudPatches(snapshotBefore);
 
   if (!cfg) return false;
 
-  try {
-    const arrayColumnKeys = (
-      ['packets_json', 'schedules_json', 'students_json', 'teachers_json'] as const
-    ).filter((k) => Array.isArray(normalizedColumns[k]));
+  activePatchCount += 1;
+  setCrossTabPatchInFlight(true);
+  notifySyncStateListeners();
 
-    // Atomic Read-Merge-Write per item ID across concurrent teacher/admin devices
-    if (!options?.replaceAll && arrayColumnKeys.length > 0) {
-      const selectCols = arrayColumnKeys.join(',');
-      const currentRes = await fetch(
-        `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=${selectCols}`,
-        { headers: buildHeaders(cfg.anonKey) }
-      ).catch(() => null);
+  const runTask = async (): Promise<boolean> => {
+    try {
+      const deletedSet = getDeletedEntityIds();
+      // Read the latest pending snapshot for the columns being patched
+      const currentPending = getPendingCloudPatches();
+      const workingColumns: MasterColumnsPatch = {};
+      const preMergeSnapshots: Partial<Record<keyof MasterColumnsPatch, string>> = {};
+      const dirtyFlushedByCol: Partial<Record<ArrayColumnKey, Map<string, string>>> = {};
 
-      if (currentRes && currentRes.ok) {
-        const currentRows = await currentRes.json().catch(() => []);
-        const remoteRow = Array.isArray(currentRows) && currentRows[0] ? currentRows[0] : null;
-        if (remoteRow) {
-          for (const colKey of arrayColumnKeys) {
-            const localArr = (normalizedColumns[colKey] || []) as { id: string }[];
-            const remoteArr = Array.isArray(remoteRow[colKey])
-              ? (remoteRow[colKey] as { id: string }[])
-              : [];
-            const localIds = new Set(localArr.map((item) => item?.id));
-            const preservedRemote = remoteArr.filter(
-              (rItem) =>
-                rItem &&
-                rItem.id &&
-                !localIds.has(rItem.id) &&
-                !deletedSet.has(rItem.id) &&
-                !LEGACY_DUMMY_ALL_IDS.has(rItem.id)
-            );
-            if (preservedRemote.length > 0) {
-              (normalizedColumns as any)[colKey] = [...localArr, ...preservedRemote];
+      for (const key of Object.keys(normalizedInput) as (keyof MasterColumnsPatch)[]) {
+        const val = currentPending[key] !== undefined ? currentPending[key] : normalizedInput[key];
+        (workingColumns as any)[key] = val;
+        preMergeSnapshots[key] = JSON.stringify(val);
+      }
+
+      for (const colKey of arrayColumnKeys) {
+        const dirtySet = getDirtyEntityIds(colKey);
+        const itemMap = new Map<string, string>();
+        const arr = (workingColumns[colKey] || []) as { id: string }[];
+        for (const item of arr) {
+          if (item && item.id && dirtySet.has(item.id)) {
+            itemMap.set(item.id, JSON.stringify(item));
+          }
+        }
+        dirtyFlushedByCol[colKey] = itemMap;
+      }
+
+      // Atomic Per-Item Read-Merge-Write across concurrent teacher/admin devices
+      if (!options?.replaceAll && arrayColumnKeys.length > 0) {
+        const selectCols = arrayColumnKeys.join(',');
+        const currentRes = await fetch(
+          `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=${selectCols}`,
+          { headers: buildHeaders(cfg.anonKey), cache: 'no-store' }
+        ).catch(() => null);
+
+        if (currentRes && currentRes.ok) {
+          const currentRows = await currentRes.json().catch(() => []);
+          const remoteRow = Array.isArray(currentRows) && currentRows[0] ? currentRows[0] : null;
+          if (remoteRow) {
+            for (const colKey of arrayColumnKeys) {
+              const localArr = (workingColumns[colKey] || []) as { id: string }[];
+              const remoteArr = Array.isArray(remoteRow[colKey])
+                ? (remoteRow[colKey] as { id: string }[])
+                : [];
+              const dirtySet = getDirtyEntityIds(colKey);
+              const localById = new Map<string, any>();
+              for (const item of localArr) {
+                if (item && item.id && !deletedSet.has(item.id) && !LEGACY_DUMMY_ALL_IDS.has(item.id)) {
+                  localById.set(item.id, item);
+                }
+              }
+
+              if (colKey === 'packets_json') {
+                // Strict isolation for packets_json:
+                // Only packets in `dirtySet` can be modified/added by this device;
+                // all other teachers' packets in `remoteArr` are kept verbatim!
+                const remoteIds = new Set<string>();
+                const mergedPackets: ExamPacket[] = [];
+
+                for (const rItem of remoteArr as ExamPacket[]) {
+                  if (
+                    !rItem ||
+                    !rItem.id ||
+                    deletedSet.has(rItem.id) ||
+                    LEGACY_DUMMY_ALL_IDS.has(rItem.id)
+                  ) {
+                    continue;
+                  }
+                  remoteIds.add(rItem.id);
+                  if (dirtySet.has(rItem.id)) {
+                    const lItem = localById.get(rItem.id) as ExamPacket | undefined;
+                    if (lItem) {
+                      mergedPackets.push(mergeSinglePacket(lItem, rItem, true, deletedSet));
+                    } else {
+                      mergedPackets.push(rItem);
+                    }
+                  } else {
+                    // Untouched packet on this device -> preserve remote version 100%
+                    mergedPackets.push(rItem);
+                  }
+                }
+
+                // Prepend any newly created packets that are in `dirtySet` (or if remoteArr was empty)
+                const newDirtyPackets: ExamPacket[] = [];
+                for (const lItem of localArr as ExamPacket[]) {
+                  if (
+                    lItem &&
+                    lItem.id &&
+                    !remoteIds.has(lItem.id) &&
+                    !deletedSet.has(lItem.id) &&
+                    !LEGACY_DUMMY_ALL_IDS.has(lItem.id) &&
+                    (dirtySet.has(lItem.id) || remoteArr.length === 0)
+                  ) {
+                    newDirtyPackets.push(lItem);
+                  }
+                }
+
+                workingColumns.packets_json = [...newDirtyPackets, ...mergedPackets];
+              } else {
+                // schedules_json, students_json, teachers_json
+                const remoteIds = new Set<string>();
+                const mergedItems: any[] = [];
+
+                for (const rItem of remoteArr) {
+                  if (
+                    !rItem ||
+                    !rItem.id ||
+                    deletedSet.has(rItem.id) ||
+                    LEGACY_DUMMY_ALL_IDS.has(rItem.id)
+                  ) {
+                    continue;
+                  }
+                  remoteIds.add(rItem.id);
+                  if (dirtySet.size > 0) {
+                    if (dirtySet.has(rItem.id) && localById.has(rItem.id)) {
+                      mergedItems.push(localById.get(rItem.id));
+                    } else {
+                      mergedItems.push(rItem);
+                    }
+                  } else {
+                    // Legacy caller without dirtySet: prefer local if present
+                    mergedItems.push(localById.get(rItem.id) || rItem);
+                  }
+                }
+
+                const newLocalItems: any[] = [];
+                for (const lItem of localArr) {
+                  if (
+                    lItem &&
+                    lItem.id &&
+                    !remoteIds.has(lItem.id) &&
+                    !deletedSet.has(lItem.id) &&
+                    !LEGACY_DUMMY_ALL_IDS.has(lItem.id) &&
+                    (dirtySet.size === 0 || dirtySet.has(lItem.id) || remoteArr.length === 0)
+                  ) {
+                    newLocalItems.push(lItem);
+                  }
+                }
+
+                (workingColumns as any)[colKey] = [...newLocalItems, ...mergedItems];
+              }
             }
           }
         }
       }
-    }
 
-    const nowIso = new Date().toISOString();
-    const patchBody = {
-      ...normalizedColumns,
-      updated_at: nowIso,
-    };
+      const nowIso = new Date().toISOString();
+      const patchBody = {
+        ...workingColumns,
+        updated_at: nowIso,
+      };
 
-    const res = await fetchWithRetry(
-      `${cfg.url}/rest/v1/cbt_app_state?id=eq.1`,
-      {
-        method: 'PATCH',
-        headers: buildHeaders(cfg.anonKey, {
-          Prefer: 'return=representation',
-        }),
-        body: JSON.stringify(patchBody),
-      },
-      3
-    );
-
-    if (!res.ok) return false;
-
-    const updatedRows = await res.json().catch(() => []);
-    if (Array.isArray(updatedRows) && updatedRows.length === 0) {
-      // Row id=1 does not exist yet; insert with defaults + patched columns
-      const insertRes = await fetchWithRetry(
-        `${cfg.url}/rest/v1/cbt_app_state?on_conflict=id`,
+      const res = await fetchWithRetry(
+        `${cfg.url}/rest/v1/cbt_app_state?id=eq.1`,
         {
-          method: 'POST',
+          method: 'PATCH',
           headers: buildHeaders(cfg.anonKey, {
-            Prefer: 'resolution=merge-duplicates,return=minimal',
+            Prefer: 'return=representation',
           }),
-          body: JSON.stringify({
-            id: 1,
-            ...patchBody,
-          }),
+          body: JSON.stringify(patchBody),
         },
-        2
+        3
       );
-      if (!insertRes.ok) return false;
-    }
 
-    if (
-      Array.isArray(normalizedColumns.schedules_json) &&
-      normalizedColumns.schedules_json.length === 0
-    ) {
-      await fetch(`${cfg.url}/rest/v1/cbt_live_participants?schedule_id=neq.__none__`, {
-        method: 'DELETE',
-        headers: buildHeaders(cfg.anonKey),
-      }).catch(() => {});
-    }
+      if (!res.ok) return false;
 
-    // Clear only the keys whose values still match what we just flushed
-    const latestPending = getPendingCloudPatches();
-    for (const key of Object.keys(normalizedColumns) as (keyof MasterColumnsPatch)[]) {
-      if (
-        JSON.stringify(latestPending[key]) === JSON.stringify(normalizedColumns[key])
-      ) {
-        delete latestPending[key];
+      const updatedRows = await res.json().catch(() => []);
+      if (Array.isArray(updatedRows) && updatedRows.length === 0) {
+        // Row id=1 does not exist yet; insert with defaults + patched columns
+        const insertRes = await fetchWithRetry(
+          `${cfg.url}/rest/v1/cbt_app_state?on_conflict=id`,
+          {
+            method: 'POST',
+            headers: buildHeaders(cfg.anonKey, {
+              Prefer: 'resolution=merge-duplicates,return=minimal',
+            }),
+            body: JSON.stringify({
+              id: 1,
+              ...patchBody,
+            }),
+          },
+          2
+        );
+        if (!insertRes.ok) return false;
       }
-    }
-    setPendingCloudPatches(latestPending);
 
-    return true;
-  } catch {
-    return false;
-  }
+      if (
+        Array.isArray(workingColumns.schedules_json) &&
+        workingColumns.schedules_json.length === 0 &&
+        options?.replaceAll
+      ) {
+        await fetch(`${cfg.url}/rest/v1/cbt_live_participants?schedule_id=neq.__none__`, {
+          method: 'DELETE',
+          headers: buildHeaders(cfg.anonKey),
+        }).catch(() => {});
+      }
+
+      // Clear dirty item IDs that have not changed since this flush started
+      const latestPending = getPendingCloudPatches();
+      for (const colKey of arrayColumnKeys) {
+        const flushedMap = dirtyFlushedByCol[colKey];
+        if (flushedMap && flushedMap.size > 0) {
+          const latestArr = (latestPending[colKey] || []) as { id: string }[];
+          const latestById = new Map(latestArr.map((item) => [item?.id, item]));
+          const idsToClear: string[] = [];
+          flushedMap.forEach((flushedJson, id) => {
+            const currentItem = latestById.get(id);
+            if (!currentItem || JSON.stringify(currentItem) === flushedJson) {
+              idsToClear.push(id);
+            }
+          });
+          if (idsToClear.length > 0) {
+            removeDirtyEntityIds(colKey, idsToClear);
+          }
+        }
+      }
+
+      // Compare against pre-merge snapshot so remote merges never leave stuck pending patches
+      for (const key of Object.keys(workingColumns) as (keyof MasterColumnsPatch)[]) {
+        if (JSON.stringify(latestPending[key]) === preMergeSnapshots[key]) {
+          delete latestPending[key];
+        }
+      }
+      setPendingCloudPatches(latestPending);
+
+      return true;
+    } catch {
+      return false;
+    } finally {
+      activePatchCount = Math.max(0, activePatchCount - 1);
+      if (activePatchCount === 0) {
+        setCrossTabPatchInFlight(false);
+      }
+      notifySyncStateListeners();
+    }
+  };
+
+  patchQueuePromise = patchQueuePromise.then(runTask, runTask);
+  return patchQueuePromise;
 }
 
 export async function upsertSubmissionToSupabase(sub: ExamSubmission): Promise<boolean> {
@@ -687,12 +1120,33 @@ export async function saveMasterStateToSupabase(
     teachers: Teacher[];
     submissions?: ExamSubmission[];
   },
-  customCfg?: SupabaseCloudConfig | null
+  customCfg?: SupabaseCloudConfig | null,
+  options?: { replaceAll?: boolean }
 ): Promise<boolean> {
   const cfg = customCfg || getSupabaseConfig(payload.settings);
   if (!cfg) return false;
 
   try {
+    let finalPackets = payload.packets;
+    if (!options?.replaceAll) {
+      const currentRes = await fetch(
+        `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=packets_json`,
+        { headers: buildHeaders(cfg.anonKey), cache: 'no-store' }
+      ).catch(() => null);
+      if (currentRes && currentRes.ok) {
+        const currentRows = await currentRes.json().catch(() => []);
+        const remoteRow = Array.isArray(currentRows) && currentRows[0] ? currentRows[0] : null;
+        if (remoteRow && Array.isArray(remoteRow.packets_json)) {
+          const allLocalIds = new Set(payload.packets.map((p) => p.id));
+          finalPackets = mergePacketLists(
+            payload.packets,
+            remoteRow.packets_json as ExamPacket[],
+            allLocalIds
+          ).packets;
+        }
+      }
+    }
+
     const nowIso = new Date().toISOString();
     const stateBody = {
       id: 1,
@@ -702,7 +1156,7 @@ export async function saveMasterStateToSupabase(
         supabaseAnonKey: cfg.anonKey,
         syncMode: 'SUPABASE_HYBRID',
       },
-      packets_json: payload.packets,
+      packets_json: finalPackets,
       schedules_json: payload.schedules,
       students_json: payload.students,
       teachers_json: payload.teachers,
@@ -723,7 +1177,7 @@ export async function saveMasterStateToSupabase(
 
     if (!res.ok) return false;
 
-    if (payload.schedules.length === 0) {
+    if (payload.schedules.length === 0 && options?.replaceAll) {
       await fetch(`${cfg.url}/rest/v1/cbt_live_participants?schedule_id=neq.__none__`, {
         method: 'DELETE',
         headers: buildHeaders(cfg.anonKey),

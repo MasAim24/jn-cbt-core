@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  CheckCircle2,
+  CloudUpload,
   Copy,
   FileUp,
   MonitorPlay,
+  Pencil,
   Plus,
   Printer,
   Search,
@@ -27,6 +30,7 @@ import { CornerTableSticker } from './common/CornerStickerBadge';
 import { OfficialPdfModal } from './common/OfficialPdfModal';
 import { AuthenticatedSession } from './auth/LoginPortalView';
 import { canTeacherAccessPacket, isUnitManagerSession } from '../utils/rbacHelper';
+import { isCloudPatchInFlight, subscribeCloudSyncState } from '../utils/supabaseCloudClient';
 
 interface BankSoalViewProps {
   packets: ExamPacket[];
@@ -34,7 +38,7 @@ interface BankSoalViewProps {
   settings?: SchoolSettings;
   selectedJenjang: JenjangFilter;
   onSelectJenjang: (j: JenjangFilter) => void;
-  onSavePacket: (packet: ExamPacket) => void;
+  onSavePacket: (packet: ExamPacket, options?: { deletedQuestionIds?: string[] }) => void;
   onDeletePacket: (packetId: string) => void;
   onOpenStudentSim: (packetId: string) => void;
   authSession?: AuthenticatedSession | null;
@@ -51,15 +55,33 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   onOpenStudentSim,
   authSession,
 }) => {
-  const [activePacketId, setActivePacketId] = useState<string>(packets[0]?.id || '');
+  const activePacketStorageKey = `jn_cbt_active_packet_id_${authSession?.id || 'admin'}`;
+  const [activePacketId, setActivePacketId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(activePacketStorageKey);
+      if (saved && packets.some((p) => p.id === saved)) return saved;
+    } catch {
+      // ignore
+    }
+    const firstWithQuestions = packets.find((p) => (p.questions?.length || 0) > 0);
+    return firstWithQuestions?.id || packets[0]?.id || '';
+  });
   const [questionTypeFilter, setQuestionTypeFilter] = useState<'ALL' | QuestionType>('ALL');
   const [questionSearch, setQuestionSearch] = useState('');
   const [showNewPacketModal, setShowNewPacketModal] = useState(false);
+  const [editingPacketMeta, setEditingPacketMeta] = useState<ExamPacket | null>(null);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [showPdfNaskahModal, setShowPdfNaskahModal] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [bulkText, setBulkText] = useState('');
+  const [isSavingCloud, setIsSavingCloud] = useState<boolean>(() => isCloudPatchInFlight());
+
+  useEffect(() => {
+    return subscribeCloudSyncState((inFlight) => {
+      setIsSavingCloud(inFlight);
+    });
+  }, []);
 
   const isGuruLocked = authSession?.role === 'guru';
   const liveTeacher = isGuruLocked ? teachers.find((t) => t.id === authSession?.id) : undefined;
@@ -80,7 +102,23 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   });
 
   const activePacket =
-    filteredPackets.find((p) => p.id === activePacketId) || filteredPackets[0];
+    filteredPackets.find((p) => p.id === activePacketId) ||
+    filteredPackets.find((p) => (p.questions?.length || 0) > 0) ||
+    filteredPackets[0];
+
+  // Lock activePacketId so background refreshes never jump to a different packet
+  useEffect(() => {
+    if (activePacket && activePacketId !== activePacket.id) {
+      setActivePacketId(activePacket.id);
+    }
+    if (activePacket?.id) {
+      try {
+        localStorage.setItem(activePacketStorageKey, activePacket.id);
+      } catch {
+        // ignore
+      }
+    }
+  }, [activePacket?.id, activePacketId, activePacketStorageKey]);
 
   const displayedQuestions = (activePacket?.questions || []).filter((q) => {
     const matchType = questionTypeFilter === 'ALL' ? true : q.type === questionTypeFilter;
@@ -103,6 +141,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
       guruId: isIsolatedGuruMapel && authSession ? authSession.id : pkt.guruId,
       guruNama: isIsolatedGuruMapel && authSession ? authSession.name : pkt.guruNama,
       updatedAt: 'Baru saja',
+      updatedAtMs: Date.now(),
       questions: pkt.questions.map((q, idx) => ({
         ...q,
         id: `q-${Date.now()}-${idx}`,
@@ -123,6 +162,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
       guruId:
         activePacket.guruId || (isIsolatedGuruMapel && authSession ? authSession.id : undefined),
       updatedAt: 'Baru saja',
+      updatedAtMs: Date.now(),
       questions: updatedQuestions.map((item, idx) => ({ ...item, nomor: idx + 1 })),
     });
     setShowQuestionModal(false);
@@ -134,13 +174,17 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
     const remaining = activePacket.questions
       .filter((q) => q.id !== questionId)
       .map((q, idx) => ({ ...q, nomor: idx + 1 }));
-    onSavePacket({
-      ...activePacket,
-      guruId:
-        activePacket.guruId || (isIsolatedGuruMapel && authSession ? authSession.id : undefined),
-      updatedAt: 'Baru saja',
-      questions: remaining,
-    });
+    onSavePacket(
+      {
+        ...activePacket,
+        guruId:
+          activePacket.guruId || (isIsolatedGuruMapel && authSession ? authSession.id : undefined),
+        updatedAt: 'Baru saja',
+        updatedAtMs: Date.now(),
+        questions: remaining,
+      },
+      { deletedQuestionIds: [questionId] }
+    );
   };
 
   const handleBulkImport = (imported: Question[]) => {
@@ -150,6 +194,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
       guruId:
         activePacket.guruId || (isIsolatedGuruMapel && authSession ? authSession.id : undefined),
       updatedAt: 'Baru saja (Import Massal)',
+      updatedAtMs: Date.now(),
       questions: [...activePacket.questions, ...imported].map((q, idx) => ({
         ...q,
         nomor: idx + 1,
@@ -170,6 +215,17 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-teal-50 text-[#087963] border border-[#14B894]/40 whitespace-nowrap">
                 <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                 <span>Ruang Soal Pribadi: {authSession.name}</span>
+              </span>
+            )}
+            {isSavingCloud ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-50 text-[#B85D19] border border-amber-200 whitespace-nowrap animate-pulse">
+                <CloudUpload className="w-3.5 h-3.5 shrink-0" />
+                <span>Menyimpan ke Cloud...</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-50 text-[#087963] border border-emerald-200 whitespace-nowrap">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Tersimpan Aman di Cloud</span>
               </span>
             )}
             <span className="text-xs text-text-muted font-medium">
@@ -213,7 +269,10 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
           )}
 
           <button
-            onClick={() => setShowNewPacketModal(true)}
+            onClick={() => {
+              setEditingPacketMeta(null);
+              setShowNewPacketModal(true);
+            }}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F8B478] hover:bg-[#f3a35c] text-[#1E1645] text-xs font-extrabold whitespace-nowrap transition shadow-sm"
           >
             <Plus className="w-4 h-4 shrink-0" />
@@ -263,6 +322,18 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                 </div>
 
                 <div className="no-print flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => {
+                      if (!canTeacherAccessPacket(activePacket, authSession, liveTeacher)) return;
+                      setEditingPacketMeta(activePacket);
+                      setShowNewPacketModal(true);
+                    }}
+                    title="Edit Info Paket (Judul, Mapel, Kelas, KKM)"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-surface hover:bg-indigo-50 text-text-muted hover:text-text-main border border-border-subtle text-[11px] font-bold transition whitespace-nowrap"
+                  >
+                    <Pencil className="w-3.5 h-3.5 shrink-0" />
+                    <span className="hidden sm:inline">Edit Info</span>
+                  </button>
                   <button
                     onClick={() => handleDuplicatePacket(activePacket)}
                     title="Duplikat Paket Soal"
@@ -466,7 +537,11 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
 
       <NewPacketModal
         isOpen={showNewPacketModal}
-        onClose={() => setShowNewPacketModal(false)}
+        onClose={() => {
+          setShowNewPacketModal(false);
+          setEditingPacketMeta(null);
+        }}
+        editingPacket={editingPacketMeta}
         allowedJenjangs={allowedJenjangs}
         defaultJenjang={
           selectedJenjang !== 'ALL' && allowedJenjangs.includes(selectedJenjang)

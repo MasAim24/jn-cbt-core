@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { Download, FileSpreadsheet, FileJson, Lock, Upload, X } from 'lucide-react';
 import { ExamPacket, Jenjang, Question, QuestionType, Teacher } from '../../types/cbt';
 import { JENJANG_META } from '../../data/initialData';
+import { isGenericMapelLabel } from '../../utils/rbacHelper';
 
 interface NewPacketModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreatePacket: (packet: ExamPacket) => void;
+  editingPacket?: ExamPacket | null;
   allowedJenjangs?: Jenjang[];
   defaultJenjang?: Jenjang;
   defaultMapel?: string;
@@ -27,6 +29,7 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
   isOpen,
   onClose,
   onCreatePacket,
+  editingPacket = null,
   allowedJenjangs,
   defaultJenjang,
   defaultMapel,
@@ -59,20 +62,33 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
+    if (editingPacket) {
+      setNewTitle(editingPacket.title);
+      setNewMapel(isGenericMapelLabel(editingPacket.mapel) ? '' : editingPacket.mapel);
+      setNewJenjang(editingPacket.jenjang);
+      setNewKelas(editingPacket.kelas);
+      setNewGuruId(editingPacket.guruId || defaultGuruId);
+      setNewGuru(editingPacket.guruNama || defaultGuruNama || 'Tim Kurikulum / Guru Mapel');
+      setNewOptionCount(editingPacket.optionCount);
+      setNewKkm(editingPacket.kkm);
+      setNewHasArabic(editingPacket.hasArabicKitab);
+      return;
+    }
     const nextJ: Jenjang =
       defaultJenjang && effectiveJenjangs.some((o) => o.value === defaultJenjang)
         ? defaultJenjang
         : effectiveJenjangs[0]?.value || 'MTs';
+    setNewTitle('');
+    setNewMapel(defaultMapel && !isGenericMapelLabel(defaultMapel) ? defaultMapel : '');
     setNewJenjang(nextJ);
     setNewOptionCount(JENJANG_META[nextJ].defaultOptions);
     setNewGuruId(defaultGuruId);
     if (defaultGuruNama) setNewGuru(defaultGuruNama);
-    if (defaultMapel && defaultMapel !== '-') setNewMapel((prev) => prev || defaultMapel);
     if (nextJ === 'MA') setNewKelas('X / XI / XII MA');
     else if (nextJ === 'MTs') setNewKelas('VII / VIII / IX MTs');
     else if (nextJ === 'Wustho') setNewKelas('Marhalah Wustho');
     else if (nextJ === 'Ulya') setNewKelas("Marhalah 'Ulya");
-  }, [isOpen, defaultJenjang, defaultGuruId, defaultGuruNama, defaultMapel]);
+  }, [isOpen, editingPacket, defaultJenjang, defaultGuruId, defaultGuruNama, defaultMapel]);
 
   if (!isOpen) return null;
 
@@ -86,21 +102,37 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
       : effectiveJenjangs[0]?.value || 'MTs';
     const finalGuruId = lockGuruIdentity ? defaultGuruId : newGuruId;
     const finalGuruNama = lockGuruIdentity && defaultGuruNama ? defaultGuruNama : newGuru.trim();
-    const created: ExamPacket = {
-      id: `pkt-${Date.now()}`,
-      code: `CBT-${lockedJenjang.toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
-      title: newTitle.trim(),
-      mapel: newMapel.trim(),
-      jenjang: lockedJenjang,
-      kelas: newKelas.trim(),
-      guruId: finalGuruId,
-      guruNama: finalGuruNama,
-      optionCount: newOptionCount,
-      kkm: Number(newKkm) || 75,
-      hasArabicKitab: newHasArabic,
-      updatedAt: 'Baru saja',
-      questions: [],
-    };
+    const created: ExamPacket = editingPacket
+      ? {
+          ...editingPacket,
+          title: newTitle.trim(),
+          mapel: newMapel.trim(),
+          jenjang: lockedJenjang,
+          kelas: newKelas.trim(),
+          guruId: finalGuruId || editingPacket.guruId,
+          guruNama: finalGuruNama || editingPacket.guruNama,
+          optionCount: newOptionCount,
+          kkm: Number(newKkm) || 75,
+          hasArabicKitab: newHasArabic,
+          updatedAt: 'Baru saja',
+          updatedAtMs: Date.now(),
+        }
+      : {
+          id: `pkt-${Date.now()}`,
+          code: `CBT-${lockedJenjang.toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
+          title: newTitle.trim(),
+          mapel: newMapel.trim(),
+          jenjang: lockedJenjang,
+          kelas: newKelas.trim(),
+          guruId: finalGuruId,
+          guruNama: finalGuruNama,
+          optionCount: newOptionCount,
+          kkm: Number(newKkm) || 75,
+          hasArabicKitab: newHasArabic,
+          updatedAt: 'Baru saja',
+          updatedAtMs: Date.now(),
+          questions: [],
+        };
     onCreatePacket(created);
     setNewTitle('');
     setNewMapel('');
@@ -111,7 +143,9 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-elevated rounded-[26px] max-w-lg w-full p-6 shadow-floating border border-border-subtle space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-extrabold text-text-main">Buat Paket Bank Soal Baru</h3>
+          <h3 className="text-lg font-extrabold text-text-main">
+            {editingPacket ? `Edit Info Paket Soal (${editingPacket.code})` : 'Buat Paket Bank Soal Baru'}
+          </h3>
           <button
             onClick={onClose}
             className="p-1.5 rounded-xl hover:bg-surface text-text-muted"
@@ -226,7 +260,7 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
                   if (t) {
                     setNewGuruId(t.id);
                     setNewGuru(t.gelar ? `${t.nama}, ${t.gelar}` : t.nama);
-                    if (t.mapelAmpu && t.mapelAmpu !== '-' && !newMapel) {
+                    if (t.mapelAmpu && !isGenericMapelLabel(t.mapelAmpu) && !newMapel) {
                       setNewMapel(t.mapelAmpu);
                     }
                   }
@@ -238,7 +272,7 @@ export const NewPacketModal: React.FC<NewPacketModalProps> = ({
                   const fullName = t.gelar ? `${t.nama}, ${t.gelar}` : t.nama;
                   return (
                     <option key={t.id} value={t.id}>
-                      {fullName} {t.mapelAmpu && t.mapelAmpu !== '-' ? `(${t.mapelAmpu})` : ''}
+                      {fullName} {t.mapelAmpu && !isGenericMapelLabel(t.mapelAmpu) ? `(${t.mapelAmpu})` : ''}
                     </option>
                   );
                 })}

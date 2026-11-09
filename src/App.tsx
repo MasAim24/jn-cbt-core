@@ -47,9 +47,12 @@ import {
   deleteScheduleFromSupabase,
   deleteStudentFromSupabase,
   deleteSubmissionFromSupabase,
+  getCloudMutationSeq,
   getPendingCloudPatches,
   getSupabaseConfig,
+  isCloudPatchInFlight,
   loadStateFromSupabase,
+  mergePacketLists,
   patchMasterColumnInSupabase,
   saveMasterStateToSupabase,
   upsertSubmissionToSupabase,
@@ -218,12 +221,13 @@ export function App() {
     const initDatabases = async () => {
       const supaCfg = getSupabaseConfig(currentSettings);
       if (supaCfg) {
-        // First flush any pending local patches interrupted by a rapid page refresh
+        // First flush any pending v2 local patches interrupted by a rapid page refresh
         const pendingBefore = getPendingCloudPatches();
         if (Object.keys(pendingBefore).length > 0) {
           await patchMasterColumnInSupabase(pendingBefore, supaCfg);
         }
 
+        const seqBeforeLoad = getCloudMutationSeq();
         const cloudLoaded = await loadStateFromSupabase(supaCfg);
         if (mounted && cloudLoaded) {
           const pendingNow = getPendingCloudPatches();
@@ -247,10 +251,20 @@ export function App() {
               setSettings([normalizedCloudSettings]);
             }
 
-            if (pendingNow.packets_json) {
+            if (Array.isArray(cloudLoaded.packets)) {
+              const mergedPktResult = mergePacketLists(packets, cloudLoaded.packets);
+              if (getCloudMutationSeq() === seqBeforeLoad) {
+                setPackets(mergedPktResult.packets);
+              }
+              if (mergedPktResult.recoveredPacketIds.length > 0) {
+                await patchMasterColumnInSupabase(
+                  { packets_json: mergedPktResult.packets },
+                  supaCfg,
+                  { modifiedIds: mergedPktResult.recoveredPacketIds }
+                );
+              }
+            } else if (pendingNow.packets_json) {
               setPackets(pendingNow.packets_json);
-            } else if (Array.isArray(cloudLoaded.packets)) {
-              setPackets(cloudLoaded.packets);
             }
 
             if (pendingNow.schedules_json) {
@@ -265,7 +279,11 @@ export function App() {
               setStudents(cloudLoaded.students);
             } else if (INITIAL_STUDENTS.length > 0) {
               setStudents(INITIAL_STUDENTS);
-              await patchMasterColumnInSupabase({ students_json: INITIAL_STUDENTS }, supaCfg);
+              await patchMasterColumnInSupabase(
+                { students_json: INITIAL_STUDENTS },
+                supaCfg,
+                { modifiedIds: INITIAL_STUDENTS.map((s) => s.id) }
+              );
             }
 
             if (pendingNow.teachers_json) {
@@ -330,20 +348,40 @@ export function App() {
     };
   }, []);
 
+  // Warn user before closing tab if a cloud save is actively in flight
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isCloudPatchInFlight()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   // Periodic READ-ONLY background cloud refresh for Login Portal & Admin/Guru views.
-  // Never triggers a full-table overwrite back to Supabase.
+  // Never triggers a full-table overwrite back to Supabase, and drops stale polls
+  // if any local save occurred while the poll was in flight.
   useEffect(() => {
     const supaCfg = getSupabaseConfig(currentSettings);
     if (!supaCfg || authSession?.role === 'siswa') return;
 
     const interval = setInterval(async () => {
+      if (isCloudPatchInFlight()) return;
+
       const pending = getPendingCloudPatches();
       if (Object.keys(pending).length > 0) {
         await patchMasterColumnInSupabase(pending, supaCfg);
       }
 
+      if (isCloudPatchInFlight()) return;
+      const seqBeforePoll = getCloudMutationSeq();
       const cloudLoaded = await loadStateFromSupabase(supaCfg);
       if (!cloudLoaded || cloudLoaded.empty) return;
+      // If a user save started or completed while this poll was in flight, discard stale poll
+      if (isCloudPatchInFlight() || getCloudMutationSeq() !== seqBeforePoll) return;
+
       const latestPending = getPendingCloudPatches();
 
       if (!latestPending.students_json && Array.isArray(cloudLoaded.students)) {
@@ -361,11 +399,10 @@ export function App() {
         );
       }
       if (!latestPending.packets_json && Array.isArray(cloudLoaded.packets)) {
-        setPackets((prev) =>
-          JSON.stringify(prev) === JSON.stringify(cloudLoaded.packets)
-            ? prev
-            : cloudLoaded.packets
-        );
+        setPackets((prev) => {
+          const merged = mergePacketLists(prev, cloudLoaded.packets).packets;
+          return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+        });
       }
       if (!latestPending.schedules_json && Array.isArray(cloudLoaded.schedules)) {
         setSchedules((prev) =>
@@ -549,8 +586,11 @@ export function App() {
   }, []);
 
   // Handlers — All mutations synchronously update localStorage AND immediately PATCH
-  // only the affected column in Supabase cbt_app_state (backed by a pending-patch journal).
-  const handleSavePacket = (pkt: ExamPacket) => {
+  // only the affected column & item ID in Supabase cbt_app_state (backed by a per-item dirty journal).
+  const handleSavePacket = (
+    pkt: ExamPacket,
+    options?: { deletedQuestionIds?: string[] }
+  ) => {
     sqliteReadyRef.current = true;
     const liveTeacher =
       authSession?.role === 'guru' ? teachers.find((t) => t.id === authSession.id) : undefined;
@@ -562,6 +602,13 @@ export function App() {
       if (existing && !canTeacherAccessPacket(existing, authSession, liveTeacher)) {
         return prev;
       }
+      const mergedDeletedQIds = Array.from(
+        new Set([
+          ...(existing?.deletedQuestionIds || []),
+          ...(pkt.deletedQuestionIds || []),
+          ...(options?.deletedQuestionIds || []),
+        ])
+      );
       const stamped: ExamPacket = {
         ...pkt,
         guruId:
@@ -572,12 +619,18 @@ export function App() {
           isIsolatedGuru && authSession && !existing?.guruNama
             ? authSession.name
             : pkt.guruNama || existing?.guruNama || '',
+        updatedAtMs: Date.now(),
+        deletedQuestionIds:
+          mergedDeletedQIds.length > 0 ? mergedDeletedQIds.slice(-300) : undefined,
       };
       const next = existing
         ? prev.map((item) => (item.id === stamped.id ? stamped : item))
         : [stamped, ...prev];
       localStorage.setItem(STORAGE_KEYS.PACKETS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ packets_json: next });
+      patchMasterColumnInSupabase({ packets_json: next }, undefined, {
+        modifiedIds: [stamped.id],
+        deletedIds: options?.deletedQuestionIds,
+      });
       return next;
     });
   };
@@ -609,7 +662,9 @@ export function App() {
         ? prev.map((item) => (item.id === sch.id ? sch : item))
         : [sch, ...prev];
       localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(next));
-      patchMasterColumnInSupabase({ schedules_json: next });
+      patchMasterColumnInSupabase({ schedules_json: next }, undefined, {
+        modifiedIds: [sch.id],
+      });
       return next;
     });
   };
@@ -636,7 +691,9 @@ export function App() {
     setSchedules((prev) => {
       const next = prev.map((s) => (s.id === scheduleId ? { ...s, token: nextToken } : s));
       localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(next));
-      patchMasterColumnInSupabase({ schedules_json: next });
+      patchMasterColumnInSupabase({ schedules_json: next }, undefined, {
+        modifiedIds: [scheduleId],
+      });
       return next;
     });
   };
@@ -649,7 +706,9 @@ export function App() {
         ? prev.map((item) => (item.id === std.id ? std : item))
         : [std, ...prev];
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ students_json: next });
+      patchMasterColumnInSupabase({ students_json: next }, undefined, {
+        modifiedIds: [std.id],
+      });
       return next;
     });
   };
@@ -659,7 +718,9 @@ export function App() {
     setStudents((prev) => {
       const next = [...list, ...prev];
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ students_json: next });
+      patchMasterColumnInSupabase({ students_json: next }, undefined, {
+        modifiedIds: list.map((s) => s.id),
+      });
       return next;
     });
   };
@@ -672,7 +733,9 @@ export function App() {
         pin: String(Math.floor(100000 + Math.random() * 900000)),
       }));
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ students_json: next });
+      patchMasterColumnInSupabase({ students_json: next }, undefined, {
+        modifiedIds: next.map((s) => s.id),
+      });
       return next;
     });
   };
@@ -698,7 +761,9 @@ export function App() {
         ? prev.map((item) => (item.id === tch.id ? tch : item))
         : [tch, ...prev];
       localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ teachers_json: next });
+      patchMasterColumnInSupabase({ teachers_json: next }, undefined, {
+        modifiedIds: [tch.id],
+      });
       return next;
     });
   };
@@ -712,21 +777,26 @@ export function App() {
       );
       const added: Teacher[] = [];
       const updatedIds = new Map<string, Teacher>();
+      const touchedIds: string[] = [];
 
       for (const incoming of list) {
         const uKey = (incoming.username || '').toLowerCase();
         const existing = uKey ? byUsername.get(uKey) : undefined;
         if (existing) {
           updatedIds.set(existing.id, { ...incoming, id: existing.id });
+          touchedIds.push(existing.id);
         } else {
           added.push(incoming);
+          touchedIds.push(incoming.id);
         }
       }
 
       const mergedExisting = prev.map((item) => updatedIds.get(item.id) || item);
       const next = [...added, ...mergedExisting];
       localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(next));
-      patchMasterColumnInSupabase({ teachers_json: next });
+      patchMasterColumnInSupabase({ teachers_json: next }, undefined, {
+        modifiedIds: touchedIds,
+      });
       return next;
     });
   };
@@ -779,8 +849,10 @@ export function App() {
       return next;
     });
     setSchedules((prev) => {
+      const modifiedSchIds: string[] = [];
       const next = prev.map((sch) => {
         if (sch.packetId !== packetId) return sch;
+        modifiedSchIds.push(sch.id);
         const updatedList = sch.liveParticipants.map((p) =>
           p.studentId === studentId
             ? {
@@ -799,7 +871,9 @@ export function App() {
         };
       });
       localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(next));
-      patchMasterColumnInSupabase({ schedules_json: next });
+      patchMasterColumnInSupabase({ schedules_json: next }, undefined, {
+        modifiedIds: modifiedSchIds,
+      });
       return next;
     });
   };
@@ -834,7 +908,9 @@ export function App() {
           t.id === authSession.id ? { ...t, password: newPass } : t
         );
         localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(next));
-        patchMasterColumnInSupabase({ teachers_json: next });
+        patchMasterColumnInSupabase({ teachers_json: next }, undefined, {
+          modifiedIds: [authSession.id],
+        });
         return next;
       });
     }
@@ -897,14 +973,18 @@ export function App() {
     setTeachers(INITIAL_TEACHERS);
     setSubmissions(INITIAL_SUBMISSIONS);
     setSettings([normalizedSettings]);
-    saveMasterStateToSupabase({
-      settings: normalizedSettings,
-      packets: INITIAL_PACKETS,
-      schedules: INITIAL_SCHEDULES,
-      students: INITIAL_STUDENTS,
-      teachers: INITIAL_TEACHERS,
-      submissions: INITIAL_SUBMISSIONS,
-    });
+    saveMasterStateToSupabase(
+      {
+        settings: normalizedSettings,
+        packets: INITIAL_PACKETS,
+        schedules: INITIAL_SCHEDULES,
+        students: INITIAL_STUDENTS,
+        teachers: INITIAL_TEACHERS,
+        submissions: INITIAL_SUBMISSIONS,
+      },
+      undefined,
+      { replaceAll: true }
+    );
   };
 
   const handleImportFullBackup = (data: any) => {
@@ -925,14 +1005,18 @@ export function App() {
     setSubmissions(nextSubmissions);
     setSettings([nextSettings]);
 
-    saveMasterStateToSupabase({
-      settings: nextSettings,
-      packets: nextPackets,
-      schedules: nextSchedules,
-      students: nextStudents,
-      teachers: nextTeachers,
-      submissions: nextSubmissions,
-    });
+    saveMasterStateToSupabase(
+      {
+        settings: nextSettings,
+        packets: nextPackets,
+        schedules: nextSchedules,
+        students: nextStudents,
+        teachers: nextTeachers,
+        submissions: nextSubmissions,
+      },
+      undefined,
+      { replaceAll: true }
+    );
   };
 
   const handleExportFullBackup = () => {

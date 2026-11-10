@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Download, FileSpreadsheet, FileJson, Lock, Upload, X } from 'lucide-react';
+import { Download, FileSpreadsheet, FileJson, Lock, Upload, Wand2, X } from 'lucide-react';
 import { ExamPacket, Jenjang, Question, QuestionType, Teacher } from '../../types/cbt';
 import { JENJANG_META } from '../../data/initialData';
 import { isGenericMapelLabel } from '../../utils/rbacHelper';
+import { formatMathNotation } from '../../utils/mathSymbolHelper';
 
 interface NewPacketModalProps {
   isOpen: boolean;
@@ -366,8 +367,11 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
 }) => {
   const [importTab, setImportTab] = useState<'PASTE' | 'FILE_EXPORT'>('PASTE');
   const [fileFeedback, setFileFeedback] = useState<string>('');
+  const [autoFormatMathImport, setAutoFormatMathImport] = useState<boolean>(true);
 
   if (!isOpen) return null;
+
+  const normMath = (val: string) => (autoFormatMathImport ? formatMathNotation(val) : val);
 
   const handleSubmitPaste = (e: React.FormEvent) => {
     e.preventDefault();
@@ -380,12 +384,12 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
 
     const imported: Question[] = lines.map((line, idx) => {
       const parts = line.split('|').map((p) => p.trim());
-      const prompt = parts[0] || `Soal Import #${idx + 1}`;
+      const prompt = normMath(parts[0] || `Soal Import #${idx + 1}`);
       const arabic = parts[1] || undefined;
-      const optA = parts[2] || 'Pilihan A';
-      const optB = parts[3] || 'Pilihan B';
-      const optC = parts[4] || 'Pilihan C';
-      const optD = parts[5] || 'Pilihan D';
+      const optA = normMath(parts[2] || 'Pilihan A');
+      const optB = normMath(parts[3] || 'Pilihan B');
+      const optC = normMath(parts[4] || 'Pilihan C');
+      const optD = normMath(parts[5] || 'Pilihan D');
       const key = ((parts[6] || 'A').toUpperCase() as 'A' | 'B' | 'C' | 'D') || 'A';
 
       return {
@@ -611,17 +615,17 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
               ? rawType
               : 'PG'
           ) as QuestionType;
-          const prompt = cols[1] || `Soal CSV #${idx + 1}`;
+          const prompt = normMath(cols[1] || `Soal CSV #${idx + 1}`);
           const arabicPrompt = cols[2] || undefined;
           const kitabReference = cols[3] || undefined;
-          const optA = cols[4] || 'Pilihan A';
-          const optB = cols[5] || 'Pilihan B';
-          const optC = cols[6] || 'Pilihan C';
-          const optD = cols[7] || 'Pilihan D';
-          const optE = cols[8] || 'Pilihan E';
+          const optA = normMath(cols[4] || 'Pilihan A');
+          const optB = normMath(cols[5] || 'Pilihan B');
+          const optC = normMath(cols[6] || 'Pilihan C');
+          const optD = normMath(cols[7] || 'Pilihan D');
+          const optE = normMath(cols[8] || 'Pilihan E');
           const keyRaw = (cols[9] || 'A').trim();
           const weight = Number(cols[10]) || 20;
-          const pembahasan = cols[11] || undefined;
+          const pembahasan = cols[11] ? normMath(cols[11]) : undefined;
 
           const options =
             type === 'PG' || type === 'PG_KOMPLEKS'
@@ -645,7 +649,7 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
               .map((chunk, pIdx) => {
                 const [l, r] = (chunk || '').split('=>').map((s) => s.trim());
                 if (!l || !r) return null;
-                return { id: `P${pIdx + 1}`, leftText: l, rightText: r };
+                return { id: `P${pIdx + 1}`, leftText: normMath(l), rightText: normMath(r) };
               })
               .filter((item): item is { id: string; leftText: string; rightText: string } =>
                 Boolean(item)
@@ -693,7 +697,7 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
               type === 'BENAR_SALAH'
                 ? !['SALAH', 'FALSE', 'KHATHA'].includes(keyRaw.toUpperCase())
                 : undefined,
-            essayRubric: type === 'ESAI' ? pembahasan || keyRaw : undefined,
+            essayRubric: type === 'ESAI' ? pembahasan || normMath(keyRaw) : undefined,
             weight,
             pembahasan,
           };
@@ -755,6 +759,32 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
           </button>
         </div>
 
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800 text-xs">
+          <label className="inline-flex items-center gap-2 font-bold text-[#211955] dark:text-indigo-200 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoFormatMathImport}
+              onChange={(e) => setAutoFormatMathImport(e.target.checked)}
+              className="rounded text-[#211955]"
+            />
+            <span>
+              Otomatis ubah notasi matematika (<code className="font-mono">x^2 &rarr; x²</code>,{' '}
+              <code className="font-mono">x_1 &rarr; x₁</code>,{' '}
+              <code className="font-mono">&lt;= &rarr; ≤</code>) saat Import
+            </span>
+          </label>
+          {importTab === 'PASTE' && (
+            <button
+              type="button"
+              onClick={() => onChangeBulkText(formatMathNotation(bulkText))}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#14B894] hover:bg-[#0b987c] text-white text-[11px] font-extrabold transition"
+            >
+              <Wand2 className="w-3.5 h-3.5" />
+              <span>Ubah x^2 &rarr; x² Sekarang</span>
+            </button>
+          )}
+        </div>
+
         {importTab === 'PASTE' ? (
           <>
             <p className="text-xs text-text-muted leading-relaxed">
@@ -775,6 +805,7 @@ export const BulkImportQuestionModal: React.FC<BulkImportQuestionModalProps> = (
                 required
                 value={bulkText}
                 onChange={(e) => onChangeBulkText(e.target.value)}
+                placeholder="Contoh: Hasil dari 2^3 + 3^2 adalah... | | 15 | 17 | 19 | 21 | B"
                 className="w-full p-3.5 rounded-2xl bg-surface border border-border-subtle text-text-main font-mono text-xs"
               />
               <div className="flex justify-end gap-2">

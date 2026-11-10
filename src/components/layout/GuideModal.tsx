@@ -31,9 +31,10 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
             menyaring bank soal, jadwal, peserta, dan rekap nilai.
           </p>
           <p>
-            <strong className="text-text-main">2. Bank Soal Kitab &amp; Umum:</strong> Mendukung
-            teks Arab berharakat (RTL otomatis) dengan font khusus Kitab Turats serta 4 tipe soal
-            (PG, PG Kompleks, Benar/Salah, dan Uraian/Tarkib).
+            <strong className="text-text-main">2. Bank Soal Kitab &amp; MIPA/Eksakta:</strong>{' '}
+            Mendukung teks Arab berharakat (RTL otomatis), <strong>Toolbar Matematika &amp; Pangkat Instan</strong>{' '}
+            (x², x³, √, π, log₂, ≤, ≥, serta konversi otomatis <code className="font-mono">x^2 &rarr; x²</code>),
+            dan 5 tipe soal (PG, PG Kompleks, Menjodohkan, Benar/Salah, serta Uraian/Tarkib).
           </p>
           <p>
             <strong className="text-text-main">3. Simulasi Ujian Siswa:</strong> Klik tombol{' '}

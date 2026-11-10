@@ -2,8 +2,25 @@ import React, { useMemo } from 'react';
 import { ArrowLeft, ArrowLeftRight, ArrowRight, CheckCircle2, Flag } from 'lucide-react';
 import { Question } from '../../types/cbt';
 import { QuestionMediaAttachment } from '../common/QuestionMediaAttachment';
+import { formatMathNotation } from '../../utils/mathSymbolHelper';
 
 const ESSAY_HARAKAT = ['َ', 'ِ', 'ُ', 'ً', 'ٍ', 'ٌ', 'ْ', 'ّ'];
+const ESSAY_MATH_SYMBOLS = [
+  { char: '²', display: 'x²' },
+  { char: '³', display: 'x³' },
+  { char: '⁻¹', display: 'x⁻¹' },
+  { char: 'ⁿ', display: 'xⁿ' },
+  { char: '₁', display: 'x₁' },
+  { char: '₂', display: 'x₂' },
+  { char: '√', display: '√' },
+  { char: 'π', display: 'π' },
+  { char: '×', display: '×' },
+  { char: '÷', display: '÷' },
+  { char: '±', display: '±' },
+  { char: '≤', display: '≤' },
+  { char: '≥', display: '≥' },
+  { char: '°', display: '°' },
+];
 
 interface ActiveQuestionCanvasProps {
   currentQuestion: Question;
@@ -306,12 +323,40 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
         <div className="space-y-2.5 pt-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <label className="text-xs font-extrabold text-text-muted">
-              Tuliskan Jawaban Uraian / Tarkib Anda (Mendukung Bahasa Indonesia &amp; Arab):
+              Tuliskan Jawaban Uraian / Rumus / Tarkib Anda (Indonesia, Matematika &amp; Arab):
             </label>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
+              {ESSAY_MATH_SYMBOLS.map((sym, idx) => (
+                <button
+                  key={`math-${idx}`}
+                  type="button"
+                  onClick={() =>
+                    onChangeEsai(
+                      currentQuestion.id,
+                      (esaiAnswers[currentQuestion.id] || '') + sym.char
+                    )
+                  }
+                  className="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 text-xs font-extrabold text-[#211955] dark:text-indigo-200 hover:bg-[#14B894] hover:text-white transition"
+                >
+                  {sym.display}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() =>
+                  onChangeEsai(
+                    currentQuestion.id,
+                    formatMathNotation(esaiAnswers[currentQuestion.id] || '')
+                  )
+                }
+                title="Ubah x^2 menjadi x²"
+                className="px-2 py-0.5 rounded bg-[#14B894] text-white text-[11px] font-extrabold"
+              >
+                x^2&rarr;x²
+              </button>
               {ESSAY_HARAKAT.map((ch, idx) => (
                 <button
-                  key={idx}
+                  key={`harakat-${idx}`}
                   type="button"
                   onClick={() =>
                     onChangeEsai(
@@ -329,8 +374,14 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
           <textarea
             rows={5}
             value={esaiAnswers[currentQuestion.id] || ''}
+            onBlur={() =>
+              onChangeEsai(
+                currentQuestion.id,
+                formatMathNotation(esaiAnswers[currentQuestion.id] || '')
+              )
+            }
             onChange={(e) => onChangeEsai(currentQuestion.id, e.target.value)}
-            placeholder="Ketik jawaban uraian atau penjelasan tarkib di sini..."
+            placeholder="Ketik jawaban uraian, langkah penyelesaian rumus (misal: x^2 + 2x - 15 = 0), atau tarkib di sini..."
             className="w-full p-4 rounded-2xl bg-surface border border-border-subtle text-text-main font-medium text-sm focus:outline-none focus:border-[#211955]"
           />
         </div>

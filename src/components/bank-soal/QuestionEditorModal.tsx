@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeftRight,
+  Calculator,
   Headphones,
   Image as ImageIcon,
   Languages,
@@ -8,6 +9,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Wand2,
   X,
 } from 'lucide-react';
 import {
@@ -22,7 +24,40 @@ import {
   compressImageFileToDataUrl,
   DIAGRAM_PRESETS,
 } from '../../utils/questionMediaHelper';
+import {
+  formatMathNotation,
+  MATH_FORMULA_PRESETS,
+  MATH_SYMBOL_CATEGORIES,
+  MathSymbolCategory,
+} from '../../utils/mathSymbolHelper';
 import { QuestionMediaAttachment } from '../common/QuestionMediaAttachment';
+
+type ActiveMathTarget =
+  | { kind: 'prompt' }
+  | { kind: 'option'; index: number; label: 'A' | 'B' | 'C' | 'D' | 'E' }
+  | { kind: 'matchLeft'; index: number }
+  | { kind: 'matchRight'; index: number }
+  | { kind: 'rubric' }
+  | { kind: 'pembahasan' };
+
+const QUICK_OPTION_MATH_BUTTONS = [
+  { char: '²', display: 'x²', label: 'Pangkat 2' },
+  { char: '³', display: 'x³', label: 'Pangkat 3' },
+  { char: '⁻¹', display: 'x⁻¹', label: 'Pangkat -1' },
+  { char: 'ⁿ', display: 'xⁿ', label: 'Pangkat n' },
+  { char: '₁', display: 'x₁', label: 'Indeks 1' },
+  { char: '₂', display: 'x₂', label: 'Indeks 2' },
+  { char: '²log ', display: '²log', label: 'Logaritma Basis 2' },
+  { char: '√', display: '√', label: 'Akar Kuadrat' },
+  { char: 'π', display: 'π', label: 'Pi' },
+  { char: '×', display: '×', label: 'Kali' },
+  { char: '÷', display: '÷', label: 'Bagi' },
+  { char: '±', display: '±', label: 'Plus Minus' },
+  { char: '≤', display: '≤', label: 'Kurang Dari Sama Dengan' },
+  { char: '≥', display: '≥', label: 'Lebih Dari Sama Dengan' },
+  { char: '°', display: '°', label: 'Derajat' },
+  { char: '½', display: '½', label: 'Pecahan 1/2' },
+];
 
 const HARAKAT_BUTTONS = [
   { char: 'َ', label: 'Fathah' },
@@ -76,9 +111,16 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   const [qMediaImageUrl, setQMediaImageUrl] = useState('');
   const [qMediaAudioUrl, setQMediaAudioUrl] = useState('');
   const [qMediaCaption, setQMediaCaption] = useState('');
+  const [mathTab, setMathTab] = useState<MathSymbolCategory['id']>('pangkat');
+  const [activeMathTarget, setActiveMathTarget] = useState<ActiveMathTarget>({ kind: 'prompt' });
+  const [autoFormatMath, setAutoFormatMath] = useState<boolean>(true);
+  const [mathNotice, setMathNotice] = useState<string>('');
+  const lastFocusedElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
+    setActiveMathTarget({ kind: 'prompt' });
+    setMathNotice('');
     if (editingQuestion) {
       setQType(editingQuestion.type);
       setQPrompt(editingQuestion.prompt);
@@ -253,27 +295,147 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     }
   };
 
+  const getActiveTargetLabel = (): string => {
+    switch (activeMathTarget.kind) {
+      case 'prompt':
+        return 'Pokok Soal';
+      case 'option':
+        return `Pilihan Jawaban ${activeMathTarget.label}`;
+      case 'matchLeft':
+        return `Menjodohkan Kolom A #${activeMathTarget.index + 1}`;
+      case 'matchRight':
+        return `Menjodohkan Kolom B #${activeMathTarget.index + 1}`;
+      case 'rubric':
+        return 'Rubrik Esai';
+      case 'pembahasan':
+        return 'Pembahasan Soal';
+    }
+  };
+
+  const insertMathSymbol = (symbol: string) => {
+    const el = lastFocusedElRef.current;
+    const applyInsert = (currentText: string): { nextText: string; nextCursor: number } => {
+      if (el && typeof el.selectionStart === 'number' && typeof el.selectionEnd === 'number') {
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        const nextText = currentText.slice(0, start) + symbol + currentText.slice(end);
+        return { nextText, nextCursor: start + symbol.length };
+      }
+      const nextText = currentText + symbol;
+      return { nextText, nextCursor: nextText.length };
+    };
+
+    let targetCursor = 0;
+
+    if (activeMathTarget.kind === 'prompt') {
+      setQPrompt((prev) => {
+        const { nextText, nextCursor } = applyInsert(prev);
+        targetCursor = nextCursor;
+        return nextText;
+      });
+    } else if (activeMathTarget.kind === 'option') {
+      const idx = activeMathTarget.index;
+      setQOptions((prev) => {
+        const next = [...prev];
+        const current = next[idx];
+        if (!current) return prev;
+        const { nextText, nextCursor } = applyInsert(current.text);
+        targetCursor = nextCursor;
+        next[idx] = { ...current, text: nextText };
+        return next;
+      });
+    } else if (activeMathTarget.kind === 'matchLeft') {
+      const idx = activeMathTarget.index;
+      setQMatchingPairs((prev) => {
+        const next = [...prev];
+        const current = next[idx];
+        if (!current) return prev;
+        const { nextText, nextCursor } = applyInsert(current.leftText);
+        targetCursor = nextCursor;
+        next[idx] = { ...current, leftText: nextText };
+        return next;
+      });
+    } else if (activeMathTarget.kind === 'matchRight') {
+      const idx = activeMathTarget.index;
+      setQMatchingPairs((prev) => {
+        const next = [...prev];
+        const current = next[idx];
+        if (!current) return prev;
+        const { nextText, nextCursor } = applyInsert(current.rightText);
+        targetCursor = nextCursor;
+        next[idx] = { ...current, rightText: nextText };
+        return next;
+      });
+    } else if (activeMathTarget.kind === 'rubric') {
+      setQRubric((prev) => {
+        const { nextText, nextCursor } = applyInsert(prev);
+        targetCursor = nextCursor;
+        return nextText;
+      });
+    } else if (activeMathTarget.kind === 'pembahasan') {
+      setQPembahasan((prev) => {
+        const { nextText, nextCursor } = applyInsert(prev);
+        targetCursor = nextCursor;
+        return nextText;
+      });
+    }
+
+    if (el) {
+      requestAnimationFrame(() => {
+        try {
+          el.focus();
+          el.setSelectionRange(targetCursor, targetCursor);
+        } catch {
+          // Ignore selection error on unsupported input types
+        }
+      });
+    }
+  };
+
+  const handleFormatAllMathNotation = () => {
+    setQPrompt((prev) => formatMathNotation(prev));
+    setQOptions((prev) =>
+      prev.map((opt) => ({
+        ...opt,
+        text: formatMathNotation(opt.text),
+      }))
+    );
+    setQMatchingPairs((prev) =>
+      prev.map((pair) => ({
+        ...pair,
+        leftText: formatMathNotation(pair.leftText),
+        rightText: formatMathNotation(pair.rightText),
+      }))
+    );
+    setQRubric((prev) => formatMathNotation(prev));
+    setQPembahasan((prev) => formatMathNotation(prev));
+    setMathNotice('✓ Notasi pangkat & simbol berhasil dirapikan!');
+    setTimeout(() => setMathNotice(''), 2600);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!qPrompt.trim()) return;
 
+    const norm = (val: string) => (autoFormatMath ? formatMathNotation(val.trim()) : val.trim());
+
     const activeOptionLimit = activePacket.optionCount;
     const validOptions = qOptions.slice(0, activeOptionLimit).map((o) => ({
       ...o,
-      text: o.text.trim() || `Pilihan ${o.label}`,
+      text: norm(o.text) || `Pilihan ${o.label}`,
     }));
 
     const validMatchingPairs: MatchingPair[] = qMatchingPairs.map((pair, idx) => ({
       id: pair.id || `P${idx + 1}`,
-      leftText: pair.leftText.trim() || `Pernyataan ${idx + 1}`,
-      rightText: pair.rightText.trim() || `Pasangan ${idx + 1}`,
+      leftText: norm(pair.leftText) || `Pernyataan ${idx + 1}`,
+      rightText: norm(pair.rightText) || `Pasangan ${idx + 1}`,
     }));
 
     const newQ: Question = {
       id: editingQuestion ? editingQuestion.id : `q-${Date.now()}`,
       nomor: editingQuestion ? editingQuestion.nomor : activePacket.questions.length + 1,
       type: qType,
-      prompt: qPrompt.trim(),
+      prompt: norm(qPrompt),
       arabicPrompt: qArabicPrompt.trim() || undefined,
       kitabReference: qKitabRef.trim() || undefined,
       isRtl: Boolean(qArabicPrompt.trim()),
@@ -285,9 +447,9 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
       correctAnswer: qType === 'PG' ? qCorrectPG : undefined,
       correctAnswers: qType === 'PG_KOMPLEKS' ? qCorrectPGK : undefined,
       correctBoolean: qType === 'BENAR_SALAH' ? qCorrectBool : undefined,
-      essayRubric: qType === 'ESAI' ? qRubric.trim() : undefined,
+      essayRubric: qType === 'ESAI' ? norm(qRubric) : undefined,
       weight: Number(qWeight) || 20,
-      pembahasan: qPembahasan.trim() || undefined,
+      pembahasan: norm(qPembahasan) || undefined,
     };
 
     onSaveQuestion(newQ);
@@ -379,6 +541,117 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
             />
           </div>
 
+          {/* Virtual Math, Exponents & Science Toolbar (MIPA / Eksakta) */}
+          <div className="rounded-2xl bg-indigo-50/75 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800 p-4 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-extrabold text-[#211955] dark:text-indigo-200 flex items-center gap-1.5">
+                  <Calculator className="w-4 h-4 text-[#14B894]" />
+                  <span>Toolbar Matematika, Pangkat &amp; Simbol Eksakta (MIPA)</span>
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full bg-[#211955] text-white text-[10px] font-extrabold">
+                  Target Aktif: {getActiveTargetLabel()}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-text-main cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoFormatMath}
+                    onChange={(e) => setAutoFormatMath(e.target.checked)}
+                    className="rounded text-[#211955]"
+                  />
+                  <span>Auto x^2 &rarr; x²</span>
+                </label>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleFormatAllMathNotation}
+                  title="Konversi otomatis tulisan x^2 menjadi x², x_1 menjadi x₁, <= menjadi ≤ di semua kolom"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#14B894] hover:bg-[#0b987c] text-white text-[11px] font-extrabold shadow-sm transition"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  <span>Ubah x^2 &rarr; x²</span>
+                </button>
+              </div>
+            </div>
+
+            {mathNotice && (
+              <div className="px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-teal-950/60 border border-[#14B894] text-[#087963] dark:text-teal-300 text-[11px] font-extrabold">
+                {mathNotice}
+              </div>
+            )}
+
+            {/* Category Tabs + Formula Presets */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1">
+                {MATH_SYMBOL_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setMathTab(cat.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition ${
+                      mathTab === cat.id
+                        ? 'bg-[#211955] text-white shadow-sm'
+                        : 'bg-white dark:bg-indigo-900/70 text-text-muted hover:text-text-main border border-indigo-200/70 dark:border-indigo-800'
+                    }`}
+                  >
+                    {cat.shortTitle}
+                  </button>
+                ))}
+              </div>
+
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    insertMathSymbol(e.target.value);
+                  }
+                }}
+                className="px-2.5 py-1 rounded-lg bg-white dark:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 text-text-main text-[11px] font-bold"
+              >
+                <option value="">+ Sisipkan Template Rumus Cepat...</option>
+                {MATH_FORMULA_PRESETS.map((preset) => (
+                  <option key={preset.label} value={preset.formula}>
+                    {preset.label}: {preset.formula}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Symbol Buttons Grid for Active Category */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              {(
+                MATH_SYMBOL_CATEGORIES.find((c) => c.id === mathTab) ||
+                MATH_SYMBOL_CATEGORIES[0]
+              ).items.map((item) => (
+                <button
+                  key={`${mathTab}-${item.char}-${item.label}`}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => insertMathSymbol(item.char)}
+                  title={`${item.label} (Klik untuk sisipkan ke ${getActiveTargetLabel()})`}
+                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-indigo-900 border border-indigo-200 dark:border-indigo-700 text-xs font-extrabold text-[#1E1645] dark:text-indigo-100 hover:bg-[#14B894] hover:text-white hover:border-[#14B894] transition shadow-2xs"
+                >
+                  {item.display || item.char}
+                </button>
+              ))}
+            </div>
+
+            <p className="text-[11px] text-text-muted leading-snug">
+              💡 <strong>Tips Cepat:</strong> Klik dulu kolom <em>Pokok Soal</em> atau{' '}
+              <em>Pilihan Jawaban A–E</em> di bawah, lalu tekan tombol simbol di atas. Anda juga
+              bisa langsung mengetik <code className="font-mono font-bold">x^2</code>,{' '}
+              <code className="font-mono font-bold">10^-3</code>,{' '}
+              <code className="font-mono font-bold">x_1</code>,{' '}
+              <code className="font-mono font-bold">&lt;=</code>, atau{' '}
+              <code className="font-mono font-bold">sqrt(x)</code> dan sistem otomatis mengubahnya
+              menjadi <strong>x², 10⁻³, x₁, ≤, √(x)</strong>.
+            </p>
+          </div>
+
           <div>
             <label className="font-bold text-text-main block mb-1">
               Pertanyaan / Instruksi Soal
@@ -387,8 +660,17 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
               rows={3}
               required
               value={qPrompt}
+              onFocus={(e) => {
+                lastFocusedElRef.current = e.currentTarget;
+                setActiveMathTarget({ kind: 'prompt' });
+              }}
+              onBlur={() => {
+                if (autoFormatMath) {
+                  setQPrompt((prev) => formatMathNotation(prev));
+                }
+              }}
               onChange={(e) => setQPrompt(e.target.value)}
-              placeholder="Tuliskan pokok soal atau pertanyaan di sini..."
+              placeholder="Tuliskan pokok soal atau pertanyaan di sini (contoh: Tentukan akar persamaan kuadrat x² - 5x + 6 = 0)..."
               className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
             />
           </div>
@@ -524,10 +806,29 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
           {/* Dynamic Options for PG / PG_KOMPLEKS */}
           {(qType === 'PG' || qType === 'PG_KOMPLEKS') && (
             <div className="space-y-2.5">
-              <label className="font-bold text-text-main block">
-                Pilihan Jawaban &amp; Tandai Kunci (
-                {qType === 'PG' ? 'Pilih 1 Kunci' : 'Centang >= 2 Kunci'})
-              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="font-bold text-text-main block">
+                  Pilihan Jawaban &amp; Tandai Kunci (
+                  {qType === 'PG' ? 'Pilih 1 Kunci' : 'Centang >= 2 Kunci'})
+                </label>
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] font-bold text-text-muted mr-1">
+                    Pangkat/Simbol Cepat Opsi:
+                  </span>
+                  {QUICK_OPTION_MATH_BUTTONS.map((btn) => (
+                    <button
+                      key={`opt-quick-${btn.char}`}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => insertMathSymbol(btn.char)}
+                      title={`${btn.label} (Sisipkan ke ${getActiveTargetLabel()})`}
+                      className="px-2 py-0.5 rounded-lg bg-surface hover:bg-[#14B894] hover:text-white border border-border-subtle text-[11px] font-extrabold text-text-main transition"
+                    >
+                      {btn.display}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {qOptions.slice(0, activePacket.optionCount).map((opt, idx) => {
                 const isChecked =
                   qType === 'PG'
@@ -553,12 +854,30 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                     <input
                       type="text"
                       value={opt.text}
+                      onFocus={(e) => {
+                        lastFocusedElRef.current = e.currentTarget;
+                        setActiveMathTarget({ kind: 'option', index: idx, label: opt.label });
+                      }}
+                      onBlur={() => {
+                        if (autoFormatMath) {
+                          setQOptions((prev) => {
+                            const next = [...prev];
+                            if (next[idx]) {
+                              next[idx] = {
+                                ...next[idx],
+                                text: formatMathNotation(next[idx].text),
+                              };
+                            }
+                            return next;
+                          });
+                        }
+                      }}
                       onChange={(e) => {
                         const next = [...qOptions];
                         next[idx] = { ...opt, text: e.target.value };
                         setQOptions(next);
                       }}
-                      placeholder={`Teks pilihan jawaban ${opt.label}...`}
+                      placeholder={`Teks pilihan jawaban ${opt.label} (bisa ketik x^2 atau klik bar simbol)...`}
                       className="flex-1 px-3.5 py-2 rounded-xl bg-surface border border-border-subtle text-text-main"
                     />
                   </div>
@@ -625,6 +944,24 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                         type="text"
                         required
                         value={pair.leftText}
+                        onFocus={(e) => {
+                          lastFocusedElRef.current = e.currentTarget;
+                          setActiveMathTarget({ kind: 'matchLeft', index: idx });
+                        }}
+                        onBlur={() => {
+                          if (autoFormatMath) {
+                            setQMatchingPairs((prev) => {
+                              const next = [...prev];
+                              if (next[idx]) {
+                                next[idx] = {
+                                  ...next[idx],
+                                  leftText: formatMathNotation(next[idx].leftText),
+                                };
+                              }
+                              return next;
+                            });
+                          }
+                        }}
                         onChange={(e) => {
                           const next = [...qMatchingPairs];
                           next[idx] = { ...pair, leftText: e.target.value };
@@ -644,6 +981,24 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                         type="text"
                         required
                         value={pair.rightText}
+                        onFocus={(e) => {
+                          lastFocusedElRef.current = e.currentTarget;
+                          setActiveMathTarget({ kind: 'matchRight', index: idx });
+                        }}
+                        onBlur={() => {
+                          if (autoFormatMath) {
+                            setQMatchingPairs((prev) => {
+                              const next = [...prev];
+                              if (next[idx]) {
+                                next[idx] = {
+                                  ...next[idx],
+                                  rightText: formatMathNotation(next[idx].rightText),
+                                };
+                              }
+                              return next;
+                            });
+                          }
+                        }}
                         onChange={(e) => {
                           const next = [...qMatchingPairs];
                           next[idx] = { ...pair, rightText: e.target.value };
@@ -715,8 +1070,17 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
               <textarea
                 rows={3}
                 value={qRubric}
+                onFocus={(e) => {
+                  lastFocusedElRef.current = e.currentTarget;
+                  setActiveMathTarget({ kind: 'rubric' });
+                }}
+                onBlur={() => {
+                  if (autoFormatMath) {
+                    setQRubric((prev) => formatMathNotation(prev));
+                  }
+                }}
                 onChange={(e) => setQRubric(e.target.value)}
-                placeholder="Tuliskan pedoman kata kunci atau i'rab yang diharapkan..."
+                placeholder="Tuliskan pedoman kata kunci, langkah penyelesaian rumus, atau i'rab yang diharapkan..."
                 className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
               />
             </div>
@@ -729,8 +1093,17 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
             <input
               type="text"
               value={qPembahasan}
+              onFocus={(e) => {
+                lastFocusedElRef.current = e.currentTarget;
+                setActiveMathTarget({ kind: 'pembahasan' });
+              }}
+              onBlur={() => {
+                if (autoFormatMath) {
+                  setQPembahasan((prev) => formatMathNotation(prev));
+                }
+              }}
               onChange={(e) => setQPembahasan(e.target.value)}
-              placeholder="Contoh: Berdasarkan Matan Jurumiyah Bab Kalam..."
+              placeholder="Contoh: Berdasarkan rumus kuadratik atau Matan Jurumiyah Bab Kalam..."
               className="w-full px-3.5 py-2.5 rounded-xl bg-surface border border-border-subtle text-text-main"
             />
           </div>

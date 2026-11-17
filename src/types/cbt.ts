@@ -194,4 +194,5 @@ export interface SchoolSettings {
   supabaseUrl: string;
   supabaseAnonKey: string;
   syncMode: 'LOCAL_STORAGE' | 'SUPABASE_HYBRID';
+  deletedPacketIds?: string[];
 }

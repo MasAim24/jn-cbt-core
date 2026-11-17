@@ -21,6 +21,22 @@ function normalizeText(val?: string): string {
   return (val || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/**
+ * Extracts the canonical core person name without honorifics ("Ustadz", "Ustadzah", etc.)
+ * or academic titles after commas (", S.Pd", ", S.H.I, MH", etc.) so duplicate accounts
+ * belonging to the exact same teacher can still access their own packets.
+ */
+export function extractCoreTeacherName(val?: string): string {
+  if (!val) return '';
+  const beforeComma = val.split(',')[0] || '';
+  return beforeComma
+    .toLowerCase()
+    .replace(/\b(ustadzah|ustadz|ustad|ust|dr|drs|dra|ir|kh|kyai|nyai|hj|h)\.?\b/g, ' ')
+    .replace(/[.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function isGenericMapelLabel(val?: string): boolean {
   const norm = normalizeText(val);
   if (!norm || GENERIC_GURU_LABELS.has(norm)) return true;
@@ -76,7 +92,21 @@ export function canTeacherAccessPacket(
 
   // 1. Strict ID match if packet already records guruId
   if (pkt.guruId) {
-    return pkt.guruId === session.id;
+    if (pkt.guruId === session.id) {
+      return true;
+    }
+    // Allow access when the exact same teacher has a duplicate account (e.g. re-imported via Excel)
+    const pktCoreName = extractCoreTeacherName(pkt.guruNama);
+    const teacherCoreName = extractCoreTeacherName(teacher?.nama);
+    const sessionCoreName = extractCoreTeacherName(session.name);
+    if (
+      pktCoreName.length >= 5 &&
+      !GENERIC_GURU_LABELS.has(pktCoreName) &&
+      (pktCoreName === teacherCoreName || pktCoreName === sessionCoreName)
+    ) {
+      return true;
+    }
+    return false;
   }
 
   // 2. Fallback for legacy packets created before guruId was introduced: match by teacher name

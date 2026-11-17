@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   CloudUpload,
   Copy,
@@ -8,6 +9,7 @@ import {
   Pencil,
   Plus,
   Printer,
+  RefreshCw,
   Search,
   ShieldCheck,
   Trash2,
@@ -30,7 +32,11 @@ import { CornerTableSticker } from './common/CornerStickerBadge';
 import { OfficialPdfModal } from './common/OfficialPdfModal';
 import { AuthenticatedSession } from './auth/LoginPortalView';
 import { canTeacherAccessPacket, isUnitManagerSession } from '../utils/rbacHelper';
-import { isCloudPatchInFlight, subscribeCloudSyncState } from '../utils/supabaseCloudClient';
+import {
+  CloudSyncStatusInfo,
+  getCloudSyncStatus,
+  subscribeCloudSyncStatus,
+} from '../utils/supabaseCloudClient';
 
 interface BankSoalViewProps {
   packets: ExamPacket[];
@@ -41,6 +47,11 @@ interface BankSoalViewProps {
   onSavePacket: (packet: ExamPacket, options?: { deletedQuestionIds?: string[] }) => void;
   onDeletePacket: (packetId: string) => void;
   onOpenStudentSim: (packetId: string) => void;
+  onManualRescueSync?: () => Promise<{
+    ok: boolean;
+    rescuedPackets: number;
+    syncedPackets: number;
+  }>;
   authSession?: AuthenticatedSession | null;
 }
 
@@ -53,6 +64,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   onSavePacket,
   onDeletePacket,
   onOpenStudentSim,
+  onManualRescueSync,
   authSession,
 }) => {
   const activePacketStorageKey = `jn_cbt_active_packet_id_${authSession?.id || 'admin'}`;
@@ -75,13 +87,42 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
   const [showPdfNaskahModal, setShowPdfNaskahModal] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [bulkText, setBulkText] = useState('');
-  const [isSavingCloud, setIsSavingCloud] = useState<boolean>(() => isCloudPatchInFlight());
+  const [syncStatus, setSyncStatus] = useState<CloudSyncStatusInfo>(() => getCloudSyncStatus());
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const [rescueNotice, setRescueNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    return subscribeCloudSyncState((inFlight) => {
-      setIsSavingCloud(inFlight);
+    return subscribeCloudSyncStatus((next) => {
+      setSyncStatus(next);
+      if (next.lastRescuedCount > 0 && !rescueNotice) {
+        setRescueNotice(
+          `Alhamdulillah, ${next.lastRescuedCount} paket soal lokal di perangkat ini otomatis dipulihkan & tersimpan ke Cloud Pro.`
+        );
+      }
     });
-  }, []);
+  }, [rescueNotice]);
+
+  const handleTriggerRescueSync = async () => {
+    if (!onManualRescueSync || isManualSyncing) return;
+    setIsManualSyncing(true);
+    try {
+      const res = await onManualRescueSync();
+      if (res.ok) {
+        setRescueNotice(
+          res.rescuedPackets > 0
+            ? `Berhasil memulihkan ${res.rescuedPackets} paket soal dari perangkat ini ke Server Cloud Pro!`
+            : `Sinkronisasi selesai: ${res.syncedPackets} paket soal Anda sudah tersimpan utuh di Server Cloud Pro.`
+        );
+        setTimeout(() => setRescueNotice(null), 7000);
+      } else {
+        setRescueNotice(
+          'Gagal menghubungi Server Cloud. Pastikan internet aktif lalu klik Kirim Ulang.'
+        );
+      }
+    } finally {
+      setIsManualSyncing(false);
+    }
+  };
 
   const isGuruLocked = authSession?.role === 'guru';
   const liveTeacher = isGuruLocked ? teachers.find((t) => t.id === authSession?.id) : undefined;
@@ -217,16 +258,43 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                 <span>Ruang Soal Pribadi: {authSession.name}</span>
               </span>
             )}
-            {isSavingCloud ? (
+            {syncStatus.inFlight || isManualSyncing ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-50 text-[#B85D19] border border-amber-200 whitespace-nowrap animate-pulse">
-                <CloudUpload className="w-3.5 h-3.5 shrink-0" />
+                <CloudUpload aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
                 <span>Menyimpan ke Cloud...</span>
               </span>
+            ) : syncStatus.hasError ? (
+              <span
+                role="alert"
+                className="inline-flex flex-wrap items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-red-50 text-[#D93834] border border-red-200"
+              >
+                <AlertTriangle aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
+                <span>Belum Masuk Cloud (Aman di Perangkat)</span>
+                {onManualRescueSync && (
+                  <button
+                    type="button"
+                    onClick={handleTriggerRescueSync}
+                    className="ml-1 px-2 py-0.5 min-h-[24px] rounded-full bg-[#D93834] hover:bg-red-700 text-white text-[10px] font-extrabold transition"
+                  >
+                    Kirim Ulang
+                  </button>
+                )}
+              </span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-50 text-[#087963] border border-emerald-200 whitespace-nowrap">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-50 text-[#087963] border border-emerald-200 whitespace-nowrap">
+                <CheckCircle2 aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
                 <span>Tersimpan Aman di Cloud</span>
               </span>
+            )}
+            {onManualRescueSync && !syncStatus.inFlight && !isManualSyncing && !syncStatus.hasError && (
+              <button
+                type="button"
+                onClick={handleTriggerRescueSync}
+                className="inline-flex items-center gap-1 px-2.5 py-1 min-h-[26px] rounded-full text-[11px] font-extrabold bg-surface hover:bg-indigo-50 text-[#211955] border border-border-subtle whitespace-nowrap transition"
+              >
+                <RefreshCw aria-hidden="true" className="w-3 h-3 shrink-0" />
+                <span>Pulihkan / Sinkronkan Perangkat</span>
+              </button>
             )}
             <span className="text-xs text-text-muted font-medium">
               PG • PG Kompleks • Menjodohkan • Benar/Salah • Esai/Tarkib
@@ -235,6 +303,13 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
           <h1 className="text-xl font-extrabold text-text-main mt-1">
             Bank Soal &amp; Paket Ujian CBT
           </h1>
+          <div role="status" aria-live="polite">
+            {rescueNotice && (
+              <p className="mt-1.5 text-xs font-extrabold text-[#087963] bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5 inline-block">
+                {rescueNotice}
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

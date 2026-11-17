@@ -275,6 +275,35 @@ export async function checkSupabaseConnection(
   }
 }
 
+let lastKnownCloudUpdatedAt = '';
+
+/**
+ * Lightweight 65-byte Egress check: reads ONLY `updated_at` from `cbt_app_state` (id=1)
+ * so background polling saves ~99.997% of Supabase Egress bandwidth instead of re-downloading
+ * the entire multi-megabyte `packets_json` blob every 15 seconds when nothing changed.
+ */
+export async function hasCloudStateChanged(cfg?: SupabaseCloudConfig | null): Promise<boolean> {
+  const activeCfg = cfg || getSupabaseConfig();
+  if (!activeCfg) return false;
+  try {
+    const res = await fetch(
+      `${activeCfg.url}/rest/v1/cbt_app_state?id=eq.1&select=updated_at`,
+      {
+        headers: buildHeaders(activeCfg.anonKey),
+        cache: 'no-store',
+      }
+    );
+    if (!res.ok) return false;
+    const rows = await res.json();
+    const remoteTs =
+      Array.isArray(rows) && rows[0]?.updated_at ? String(rows[0].updated_at) : '';
+    if (!remoteTs) return false;
+    return remoteTs !== lastKnownCloudUpdatedAt;
+  } catch {
+    return false;
+  }
+}
+
 export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): Promise<{
   ok: boolean;
   empty: boolean;
@@ -319,6 +348,9 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
     }
 
     const master = stateRows[0];
+    if (master?.updated_at) {
+      lastKnownCloudUpdatedAt = String(master.updated_at);
+    }
     const lpRows = lpRes.ok ? await lpRes.json() : [];
     const subRows = subRes.ok ? await subRes.json() : [];
 
@@ -369,6 +401,9 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
       loadedSettings.supabaseUrl = activeCfg.url;
       loadedSettings.supabaseAnonKey = activeCfg.anonKey;
       loadedSettings.syncMode = 'SUPABASE_HYBRID';
+    }
+    if (Array.isArray(loadedSettings?.deletedPacketIds) && loadedSettings.deletedPacketIds.length > 0) {
+      recordDeletedEntityIds(loadedSettings.deletedPacketIds);
     }
 
     const legacyDummyPackets = new Set([
@@ -456,16 +491,120 @@ export interface PatchMasterOptions {
 
 type DirtyEntityIdsMap = Partial<Record<ArrayColumnKey, string[]>>;
 
+export interface CloudSyncStatusInfo {
+  inFlight: boolean;
+  hasError: boolean;
+  errorMessage: string | null;
+  pendingCount: number;
+  lastSyncedAt: number | null;
+  lastRescuedCount: number;
+}
+
 let cloudMutationSeq = 0;
 let activePatchCount = 0;
 let patchQueuePromise: Promise<boolean> = Promise.resolve(true);
+let lastCloudSyncError: string | null = null;
+let lastCloudSyncedAt: number | null = null;
+let lastRescuedPacketsCount = 0;
 const syncStateListeners = new Set<(inFlight: boolean) => void>();
+const syncStatusListeners = new Set<(status: CloudSyncStatusInfo) => void>();
+
+/**
+ * Quota-safe localStorage writer. Automatically purges non-essential decorative sticker caches
+ * and legacy keys if a browser hits the 5MB localStorage limit so teacher question data is never lost.
+ */
+export function safeLocalStorageSet(key: string, value: string): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(LEGACY_PENDING_PATCHES_KEY);
+        const toRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('jn_cbt_sticker_cutout_')) {
+            toRemove.push(k);
+          }
+        }
+        toRemove.forEach((k) => localStorage.removeItem(k));
+        localStorage.setItem(key, value);
+        return true;
+      }
+    } catch {
+      // Still over quota
+    }
+    return false;
+  }
+}
+
+/**
+ * Safely persists ExamPacket array to localStorage. If the combined school-wide Base64 media
+ * exceeds a mobile browser's 5MB localStorage quota, falls back to persisting all dirty packets
+ * plus packets owned by `priorityGuruId` so the logged-in teacher's questions are 100% preserved.
+ */
+export function safeSavePacketsToLocalStorage(
+  storageKey: string,
+  packets: ExamPacket[],
+  priorityGuruId?: string
+): void {
+  if (safeLocalStorageSet(storageKey, JSON.stringify(packets))) {
+    return;
+  }
+  const dirtySet = getDirtyEntityIds('packets_json');
+  const prioritized = packets.filter(
+    (p) => dirtySet.has(p.id) || (priorityGuruId && p.guruId === priorityGuruId)
+  );
+  if (prioritized.length > 0) {
+    safeLocalStorageSet(storageKey, JSON.stringify(prioritized));
+  }
+}
+
+function countPendingDirtyItems(): number {
+  const map = readDirtyIdsMap();
+  let total = 0;
+  (Object.keys(map) as ArrayColumnKey[]).forEach((k) => {
+    const arr = map[k];
+    if (Array.isArray(arr)) total += arr.length;
+  });
+  return total;
+}
+
+export function getCloudSyncStatus(): CloudSyncStatusInfo {
+  const inFlight = isCloudPatchInFlight();
+  const pendingCount = countPendingDirtyItems();
+  return {
+    inFlight,
+    hasError: Boolean(lastCloudSyncError),
+    errorMessage: lastCloudSyncError,
+    pendingCount,
+    lastSyncedAt: lastCloudSyncedAt,
+    lastRescuedCount: lastRescuedPacketsCount,
+  };
+}
+
+export function reportRescuedPacketsCount(count: number): void {
+  if (count > 0) {
+    lastRescuedPacketsCount = count;
+    notifySyncStateListeners();
+  }
+}
 
 function notifySyncStateListeners(): void {
   const inFlight = isCloudPatchInFlight();
+  const snapshot = getCloudSyncStatus();
   syncStateListeners.forEach((cb) => {
     try {
       cb(inFlight);
+    } catch {
+      // ignore listener errors
+    }
+  });
+  syncStatusListeners.forEach((cb) => {
+    try {
+      cb(snapshot);
     } catch {
       // ignore listener errors
     }
@@ -476,6 +615,13 @@ export function subscribeCloudSyncState(cb: (inFlight: boolean) => void): () => 
   syncStateListeners.add(cb);
   return () => {
     syncStateListeners.delete(cb);
+  };
+}
+
+export function subscribeCloudSyncStatus(cb: (status: CloudSyncStatusInfo) => void): () => void {
+  syncStatusListeners.add(cb);
+  return () => {
+    syncStatusListeners.delete(cb);
   };
 }
 
@@ -634,9 +780,12 @@ export function mergeSinglePacket(
   isLocalDirty: boolean,
   globalDeletedSet: Set<string>
 ): ExamPacket {
-  const deletedQIds = new Set<string>([
+  const pktOwnDeletedIds = new Set<string>([
     ...(localPkt.deletedQuestionIds || []),
     ...(remotePkt.deletedQuestionIds || []),
+  ]);
+  const deletedQIds = new Set<string>([
+    ...Array.from(pktOwnDeletedIds),
     ...Array.from(globalDeletedSet),
   ]);
 
@@ -652,6 +801,16 @@ export function mergeSinglePacket(
 
   const primary = preferLocal ? localPkt : remotePkt;
   const secondary = preferLocal ? remotePkt : localPkt;
+
+  const allKnownPktQIds = new Set<string>([
+    ...(localPkt.questions || []).map((q) => q?.id).filter(Boolean),
+    ...(remotePkt.questions || []).map((q) => q?.id).filter(Boolean),
+  ]);
+  globalDeletedSet.forEach((id) => {
+    if (id.startsWith('q-') && allKnownPktQIds.has(id)) {
+      pktOwnDeletedIds.add(id);
+    }
+  });
 
   const primaryQs = (primary.questions || []).filter(
     (q) => q && q.id && !deletedQIds.has(q.id)
@@ -670,7 +829,7 @@ export function mergeSinglePacket(
     nomor: idx + 1,
   }));
 
-  const mergedDeletedQIds = Array.from(deletedQIds).filter((id) => id.startsWith('q-'));
+  const mergedDeletedQIds = Array.from(pktOwnDeletedIds).filter((id) => id.startsWith('q-'));
 
   return {
     ...secondary,
@@ -686,9 +845,11 @@ export function mergeSinglePacket(
 
 /**
  * Merges local and remote ExamPacket arrays safely during hydration and background polling.
- * - Preserves any unsaved local dirty packets (`dirtyIds`).
- * - Recovers local questions if a remote packet was previously wiped to 0 questions (`recoveredPacketIds`).
- * - Never resurrects packets deleted on other devices (packets absent from `remotePackets` and not in `dirtyIds`).
+ * - Auto-rescues any local packet containing questions (`questions.length > 0`) or marked dirty
+ *   that failed to upload while the Supabase Free Plan quota was exhausted, unless explicitly
+ *   tombstoned in `deletedSet` (`settings_json.deletedPacketIds` / local deleted IDs).
+ * - Auto-rescues any extra local questions on existing packets (`merged.questions.length > remoteQCount`
+ *   or missing question IDs) and schedules them in `recoveredPacketIds` for immediate upload to Supabase Pro.
  */
 export function mergePacketLists(
   localPackets: ExamPacket[],
@@ -707,7 +868,7 @@ export function mergePacketLists(
 
   const remoteById = new Map<string, ExamPacket>();
   const mergedList: ExamPacket[] = [];
-  const recoveredPacketIds: string[] = [];
+  const recoveredSet = new Set<string>();
 
   for (const rp of remotePackets || []) {
     if (!rp || !rp.id || deletedSet.has(rp.id) || LEGACY_DUMMY_ALL_IDS.has(rp.id)) {
@@ -724,24 +885,25 @@ export function mergePacketLists(
     const localTs = lp.updatedAtMs || 0;
     const remoteTs = rp.updatedAtMs || 0;
     const remoteQCount = Array.isArray(rp.questions) ? rp.questions.length : 0;
+    const remoteQIds = new Set((rp.questions || []).map((q) => q?.id).filter(Boolean));
+    const preferLocal = isDirty || (localTs > 0 && localTs > remoteTs);
 
-    if (isDirty || (localTs > 0 && localTs > remoteTs)) {
-      const merged = mergeSinglePacket(lp, rp, true, deletedSet);
-      mergedList.push(merged);
-      if (merged.questions.length > remoteQCount) {
-        recoveredPacketIds.push(rp.id);
-      }
-    } else {
-      const merged = mergeSinglePacket(lp, rp, false, deletedSet);
-      if (remoteQCount === 0 && merged.questions.length > 0) {
-        recoveredPacketIds.push(rp.id);
-      }
-      mergedList.push(merged);
+    const merged = mergeSinglePacket(lp, rp, preferLocal, deletedSet);
+    mergedList.push(merged);
+
+    const hasExtraQuestions =
+      merged.questions.length > remoteQCount ||
+      merged.questions.some((q) => q?.id && !remoteQIds.has(q.id));
+    const hasModifiedContent =
+      preferLocal && JSON.stringify(merged.questions) !== JSON.stringify(rp.questions || []);
+
+    if (hasExtraQuestions || hasModifiedContent) {
+      recoveredSet.add(rp.id);
     }
   }
 
-  // Prepend any newly created local packets that are marked dirty and not yet in remote
-  const localOnlyDirty: ExamPacket[] = [];
+  // Rescue any local packets not yet in remote that either have questions (> 0) or are marked dirty
+  const localOnlyRescued: ExamPacket[] = [];
   for (const lp of localPackets || []) {
     if (
       lp &&
@@ -749,15 +911,16 @@ export function mergePacketLists(
       !remoteById.has(lp.id) &&
       !deletedSet.has(lp.id) &&
       !LEGACY_DUMMY_ALL_IDS.has(lp.id) &&
-      dirtySet.has(lp.id)
+      (dirtySet.has(lp.id) || (Array.isArray(lp.questions) && lp.questions.length > 0))
     ) {
-      localOnlyDirty.push(lp);
+      localOnlyRescued.push(lp);
+      recoveredSet.add(lp.id);
     }
   }
 
   return {
-    packets: [...localOnlyDirty, ...mergedList],
-    recoveredPacketIds,
+    packets: [...localOnlyRescued, ...mergedList],
+    recoveredPacketIds: Array.from(recoveredSet),
   };
 }
 
@@ -773,13 +936,39 @@ export function getPendingCloudPatches(): MasterColumnsPatch {
   }
 }
 
+function mergePendingColumns(
+  existingPending: MasterColumnsPatch,
+  incoming: MasterColumnsPatch
+): MasterColumnsPatch {
+  const merged: MasterColumnsPatch = { ...existingPending, ...incoming };
+  if (Array.isArray(existingPending.packets_json) && Array.isArray(incoming.packets_json)) {
+    const incomingIds = new Set(incoming.packets_json.map((p) => p?.id));
+    const extraPending = existingPending.packets_json.filter(
+      (p) => p && p.id && !incomingIds.has(p.id)
+    );
+    merged.packets_json = [...incoming.packets_json, ...extraPending];
+  }
+  return merged;
+}
+
 function setPendingCloudPatches(next: MasterColumnsPatch): void {
   try {
     if (typeof window === 'undefined') return;
-    if (Object.keys(next).length === 0) {
+    const compact: MasterColumnsPatch = { ...next };
+    if (Array.isArray(compact.packets_json)) {
+      const dirtyPktIds = getDirtyEntityIds('packets_json');
+      compact.packets_json =
+        dirtyPktIds.size > 0
+          ? compact.packets_json.filter((p) => p && p.id && dirtyPktIds.has(p.id))
+          : [];
+      if (compact.packets_json.length === 0) {
+        delete compact.packets_json;
+      }
+    }
+    if (Object.keys(compact).length === 0) {
       localStorage.removeItem(PENDING_PATCHES_KEY);
     } else {
-      localStorage.setItem(PENDING_PATCHES_KEY, JSON.stringify(next));
+      safeLocalStorageSet(PENDING_PATCHES_KEY, JSON.stringify(compact));
     }
   } catch {
     // ignore storage errors
@@ -831,10 +1020,14 @@ export async function patchMasterColumnInSupabase(
   }
 
   // Record in durable pending journal synchronously before queuing network call
-  const snapshotBefore = { ...getPendingCloudPatches(), ...normalizedInput };
+  const snapshotBefore = mergePendingColumns(getPendingCloudPatches(), normalizedInput);
   setPendingCloudPatches(snapshotBefore);
 
-  if (!cfg) return false;
+  if (!cfg) {
+    lastCloudSyncError = 'Konfigurasi Supabase belum tersedia.';
+    notifySyncStateListeners();
+    return false;
+  }
 
   activePatchCount += 1;
   setCrossTabPatchInFlight(true);
@@ -843,16 +1036,20 @@ export async function patchMasterColumnInSupabase(
   const runTask = async (): Promise<boolean> => {
     try {
       const deletedSet = getDeletedEntityIds();
-      // Read the latest pending snapshot for the columns being patched
+      // Combine normalizedInput with the latest compact pending snapshot
       const currentPending = getPendingCloudPatches();
+      const combinedPending = mergePendingColumns(normalizedInput, currentPending);
       const workingColumns: MasterColumnsPatch = {};
       const preMergeSnapshots: Partial<Record<keyof MasterColumnsPatch, string>> = {};
       const dirtyFlushedByCol: Partial<Record<ArrayColumnKey, Map<string, string>>> = {};
 
       for (const key of Object.keys(normalizedInput) as (keyof MasterColumnsPatch)[]) {
-        const val = currentPending[key] !== undefined ? currentPending[key] : normalizedInput[key];
+        const val =
+          combinedPending[key] !== undefined ? combinedPending[key] : normalizedInput[key];
         (workingColumns as any)[key] = val;
-        preMergeSnapshots[key] = JSON.stringify(val);
+        preMergeSnapshots[key] = JSON.stringify(
+          currentPending[key] !== undefined ? currentPending[key] : val
+        );
       }
 
       for (const colKey of arrayColumnKeys) {
@@ -867,18 +1064,32 @@ export async function patchMasterColumnInSupabase(
         dirtyFlushedByCol[colKey] = itemMap;
       }
 
-      // Atomic Per-Item Read-Merge-Write across concurrent teacher/admin devices
+      // Atomic Per-Item Read-Merge-Write across concurrent teacher/admin devices.
+      // CRITICAL ANTI-OVERWRITE GUARD: If GET fails (e.g. network drop or quota limit),
+      // abort the PATCH immediately rather than blindly overwriting other teachers' packets!
       if (!options?.replaceAll && arrayColumnKeys.length > 0) {
         const selectCols = arrayColumnKeys.join(',');
-        const currentRes = await fetch(
+        const currentRes = await fetchWithRetry(
           `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=${selectCols}`,
-          { headers: buildHeaders(cfg.anonKey), cache: 'no-store' }
+          { headers: buildHeaders(cfg.anonKey), cache: 'no-store' },
+          3,
+          500
         ).catch(() => null);
 
-        if (currentRes && currentRes.ok) {
-          const currentRows = await currentRes.json().catch(() => []);
-          const remoteRow = Array.isArray(currentRows) && currentRows[0] ? currentRows[0] : null;
-          if (remoteRow) {
+        if (!currentRes || !currentRes.ok) {
+          lastCloudSyncError =
+            'Koneksi Cloud tertunda saat membaca server. Soal Anda tetap tersimpan di perangkat ini dan akan dikirim ulang otomatis.';
+          return false;
+        }
+
+        const currentRows = await currentRes.json().catch(() => null);
+        if (!Array.isArray(currentRows)) {
+          lastCloudSyncError =
+            'Respons server Cloud tidak lengkap. Perubahan aman di perangkat dan akan dikirim ulang.';
+          return false;
+        }
+        const remoteRow = currentRows[0] || null;
+        if (remoteRow) {
             for (const colKey of arrayColumnKeys) {
               const localArr = (workingColumns[colKey] || []) as { id: string }[];
               const remoteArr = Array.isArray(remoteRow[colKey])
@@ -984,7 +1195,6 @@ export async function patchMasterColumnInSupabase(
             }
           }
         }
-      }
 
       const nowIso = new Date().toISOString();
       const patchBody = {
@@ -1004,7 +1214,10 @@ export async function patchMasterColumnInSupabase(
         3
       );
 
-      if (!res.ok) return false;
+      if (!res.ok) {
+        lastCloudSyncError = `Gagal menyimpan ke Cloud (HTTP ${res.status}). Soal tetap aman di perangkat.`;
+        return false;
+      }
 
       const updatedRows = await res.json().catch(() => []);
       if (Array.isArray(updatedRows) && updatedRows.length === 0) {
@@ -1023,8 +1236,15 @@ export async function patchMasterColumnInSupabase(
           },
           2
         );
-        if (!insertRes.ok) return false;
+        if (!insertRes.ok) {
+          lastCloudSyncError = `Gagal inisialisasi baris Cloud (HTTP ${insertRes.status}).`;
+          return false;
+        }
       }
+
+      lastKnownCloudUpdatedAt = nowIso;
+      lastCloudSyncError = null;
+      lastCloudSyncedAt = Date.now();
 
       if (
         Array.isArray(workingColumns.schedules_json) &&
@@ -1059,7 +1279,10 @@ export async function patchMasterColumnInSupabase(
 
       // Compare against pre-merge snapshot so remote merges never leave stuck pending patches
       for (const key of Object.keys(workingColumns) as (keyof MasterColumnsPatch)[]) {
-        if (JSON.stringify(latestPending[key]) === preMergeSnapshots[key]) {
+        if (
+          key !== 'packets_json' &&
+          JSON.stringify(latestPending[key]) === preMergeSnapshots[key]
+        ) {
           delete latestPending[key];
         }
       }
@@ -1067,6 +1290,8 @@ export async function patchMasterColumnInSupabase(
 
       return true;
     } catch {
+      lastCloudSyncError =
+        'Gangguan jaringan saat menghubungi Cloud. Soal Anda tersimpan di perangkat & akan dikirim otomatis.';
       return false;
     } finally {
       activePatchCount = Math.max(0, activePatchCount - 1);

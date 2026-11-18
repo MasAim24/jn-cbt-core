@@ -1,3 +1,5 @@
+import { uploadBlobToSupabaseStorage } from './supabaseCloudClient';
+
 export interface MediaDiagramPreset {
   id: string;
   label: string;
@@ -157,8 +159,8 @@ export const AUDIO_ISTIMA_PRESETS: AudioIstimaPreset[] = [
 ];
 
 /**
- * Compresses an uploaded image File into a lightweight DataURL (max width 900px)
- * so it can be persisted safely in localStorage.
+ * Compresses an uploaded image File into a lightweight DataURL (max width 960px)
+ * so it can be persisted safely in localStorage when offline.
  */
 export function compressImageFileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -173,7 +175,7 @@ export function compressImageFileToDataUrl(file: File): Promise<string> {
       const img = new Image();
       img.onerror = () => resolve(result);
       img.onload = () => {
-        const maxW = 860;
+        const maxW = 960;
         const scale = img.width > maxW ? maxW / img.width : 1;
         const canvas = document.createElement('canvas');
         canvas.width = Math.round(img.width * scale);
@@ -186,9 +188,76 @@ export function compressImageFileToDataUrl(file: File): Promise<string> {
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.84));
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
       };
       img.src = result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function compressImageFileToBlob(file: File, dataUrl: string): Promise<Blob | null> {
+  if (file.type === 'image/svg+xml') {
+    return Promise.resolve(file);
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onerror = () => resolve(file);
+    img.onload = () => {
+      const maxW = 960;
+      const scale = img.width > maxW ? maxW / img.width : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => resolve(blob || file),
+        'image/jpeg',
+        0.85
+      );
+    };
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Compresses and uploads an exam question image directly to Supabase Storage Pro CDN (`cbt-media`),
+ * falling back seamlessly to a compressed local DataURL when running offline on school LAN.
+ */
+export async function uploadQuestionImageFile(file: File): Promise<string> {
+  const dataUrl = await compressImageFileToDataUrl(file);
+  const blob = await compressImageFileToBlob(file, dataUrl);
+  if (blob) {
+    const cdnUrl = await uploadBlobToSupabaseStorage(blob, 'questions');
+    if (cdnUrl) return cdnUrl;
+  }
+  return dataUrl;
+}
+
+/**
+ * Uploads an Istima'/listening audio file directly to Supabase Storage Pro CDN (`cbt-media`),
+ * falling back to DataURL if running offline and file size fits browser memory.
+ */
+export async function uploadQuestionAudioFile(file: File): Promise<string> {
+  const cdnUrl = await uploadBlobToSupabaseStorage(file, 'audio');
+  if (cdnUrl) return cdnUrl;
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Gagal membaca file audio'));
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Format audio tidak valid'));
+      }
     };
     reader.readAsDataURL(file);
   });

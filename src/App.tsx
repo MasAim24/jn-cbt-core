@@ -54,7 +54,9 @@ import {
   getSupabaseConfig,
   hasCloudStateChanged,
   isCloudPatchInFlight,
+  loadLiveTablesFromSupabase,
   loadStateFromSupabase,
+  mergeLiveParticipantsIntoSchedules,
   mergePacketLists,
   mergeSinglePacket,
   patchMasterColumnInSupabase,
@@ -439,6 +441,31 @@ export function App() {
       if (!stateChanged && !needsLiveTablePoll) return;
 
       const seqBeforePoll = getCloudMutationSeq();
+
+      // Fast path for Jadwal Live & Rekap Nilai when cbt_app_state (`packets_json`) has NOT changed:
+      // pull ONLY `cbt_live_participants` + `cbt_submissions` instead of re-downloading master bank soal!
+      if (!stateChanged && needsLiveTablePoll) {
+        const liveOnly = await loadLiveTablesFromSupabase(supaCfg);
+        if (!liveOnly || isCloudPatchInFlight() || getCloudMutationSeq() !== seqBeforePoll) return;
+
+        const latestPendingLive = getPendingCloudPatches();
+        if (!latestPendingLive.schedules_json && Array.isArray(liveOnly.liveParticipantRows)) {
+          setSchedules((prev) => {
+            const merged = mergeLiveParticipantsIntoSchedules(prev, liveOnly.liveParticipantRows);
+            return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+          });
+        }
+        if (Array.isArray(liveOnly.submissions)) {
+          setSubmissions((prev) => {
+            const byId = new Map(prev.map((s) => [s.id, s]));
+            liveOnly.submissions.forEach((s) => byId.set(s.id, s));
+            const merged = Array.from(byId.values());
+            return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+          });
+        }
+        return;
+      }
+
       const cloudLoaded = await loadStateFromSupabase(supaCfg);
       if (!cloudLoaded || cloudLoaded.empty) return;
       // If a user save started or completed while this poll was in flight, discard stale poll

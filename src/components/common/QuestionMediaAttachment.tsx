@@ -93,6 +93,7 @@ export const QuestionMediaAttachment: React.FC<QuestionMediaAttachmentProps> = (
             <img
               src={mediaImageUrl}
               alt={mediaCaption || 'Ilustrasi Soal CBT'}
+              decoding="async"
               className={`${
                 compact ? 'max-h-48' : 'max-h-72'
               } w-auto object-contain rounded-lg transition-transform duration-200 group-hover:scale-[1.01]`}

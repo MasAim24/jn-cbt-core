@@ -21,8 +21,9 @@ import {
 } from '../../types/cbt';
 import {
   AUDIO_ISTIMA_PRESETS,
-  compressImageFileToDataUrl,
   DIAGRAM_PRESETS,
+  uploadQuestionAudioFile,
+  uploadQuestionImageFile,
 } from '../../utils/questionMediaHelper';
 import {
   formatMathNotation,
@@ -115,12 +116,14 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   const [activeMathTarget, setActiveMathTarget] = useState<ActiveMathTarget>({ kind: 'prompt' });
   const [autoFormatMath, setAutoFormatMath] = useState<boolean>(true);
   const [mathNotice, setMathNotice] = useState<string>('');
+  const [uploadingMedia, setUploadingMedia] = useState<'image' | 'audio' | null>(null);
   const lastFocusedElRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
     setActiveMathTarget({ kind: 'prompt' });
     setMathNotice('');
+    setUploadingMedia(null);
     if (editingQuestion) {
       setQType(editingQuestion.type);
       setQPrompt(editingQuestion.prompt);
@@ -189,37 +192,44 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setUploadingMedia('image');
     try {
-      const compressed = await compressImageFileToDataUrl(file);
-      setQMediaImageUrl(compressed);
+      const mediaUrl = await uploadQuestionImageFile(file);
+      setQMediaImageUrl(mediaUrl);
       if (!qMediaCaption.trim()) {
         setQMediaCaption(`Gambar Ilustrasi: ${file.name.replace(/\.[^/.]+$/, '')}`);
       }
     } catch {
       // Ignore upload error
+    } finally {
+      setUploadingMedia(null);
+      e.target.value = '';
     }
   };
 
-  const handleAudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAudioFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 1536 * 1024) {
+    if (file.size > 8 * 1024 * 1024) {
       alert(
-        'Ukuran file audio terlalu besar (> 1,5 MB) untuk disimpan langsung di database. Gunakan file MP3/OGG terkompresi (< 1,5 MB) atau tempelkan URL link audio eksternal.'
+        'Ukuran file audio terlalu besar (> 8 MB). Gunakan file MP3/OGG/M4A terkompresi (< 8 MB) atau tempelkan URL link audio eksternal.'
       );
       e.target.value = '';
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setQMediaAudioUrl(reader.result);
-        if (!qMediaCaption.trim()) {
-          setQMediaCaption(`Audio Soal: ${file.name.replace(/\.[^/.]+$/, '')}`);
-        }
+    setUploadingMedia('audio');
+    try {
+      const audioUrl = await uploadQuestionAudioFile(file);
+      setQMediaAudioUrl(audioUrl);
+      if (!qMediaCaption.trim()) {
+        setQMediaCaption(`Audio Soal: ${file.name.replace(/\.[^/.]+$/, '')}`);
       }
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      // Ignore upload error
+    } finally {
+      setUploadingMedia(null);
+      e.target.value = '';
+    }
   };
 
   const handleFillMatchingSample = () => {
@@ -706,12 +716,19 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                   <span>Gambar Ilustrasi / Bagan Kurikulum</span>
                 </label>
                 <div className="flex items-center gap-2">
-                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#211955] text-white font-bold cursor-pointer hover:bg-[#2d2270] transition shrink-0">
+                  <label
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#211955] text-white font-bold transition shrink-0 ${
+                      uploadingMedia ? 'opacity-60 pointer-events-none' : 'cursor-pointer hover:bg-[#2d2270]'
+                    }`}
+                  >
                     <Upload className="w-3.5 h-3.5" />
-                    <span>Upload Gambar</span>
+                    <span>
+                      {uploadingMedia === 'image' ? 'Mengunggah ke CDN...' : 'Upload Gambar'}
+                    </span>
                     <input
                       type="file"
                       accept="image/*"
+                      disabled={Boolean(uploadingMedia)}
                       onChange={handleImageFileUpload}
                       className="hidden"
                     />
@@ -748,12 +765,19 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                   <span>Audio Istima’ / Listening Comprehension</span>
                 </label>
                 <div className="flex items-center gap-2">
-                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14B894] text-white font-bold cursor-pointer hover:bg-[#0b987c] transition shrink-0">
+                  <label
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14B894] text-white font-bold transition shrink-0 ${
+                      uploadingMedia ? 'opacity-60 pointer-events-none' : 'cursor-pointer hover:bg-[#0b987c]'
+                    }`}
+                  >
                     <Upload className="w-3.5 h-3.5" />
-                    <span>Upload Audio</span>
+                    <span>
+                      {uploadingMedia === 'audio' ? 'Mengunggah ke CDN...' : 'Upload Audio'}
+                    </span>
                     <input
                       type="file"
                       accept="audio/*"
+                      disabled={Boolean(uploadingMedia)}
                       onChange={handleAudioFileUpload}
                       className="hidden"
                     />

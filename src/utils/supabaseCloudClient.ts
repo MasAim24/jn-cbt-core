@@ -29,12 +29,19 @@ export interface SupabaseCloudStatus {
   };
 }
 
+export const SUPABASE_MEDIA_BUCKET = 'cbt-media';
+
 export const SUPABASE_SQL_SCHEMA = `-- ============================================================================
--- JN ExamCBTCore — Skema Database Cloud Supabase (PostgreSQL)
--- Kapasitas Tinggi (600+ Santri Serentak) dengan Atomic Row-Level Upsert
+-- JN ExamCBTCore — Skema Database Cloud Supabase Pro (PostgreSQL 17)
+-- Kapasitas Tinggi (600+ Santri Serentak) • Atomic Upsert • Storage Media CDN
 -- Cara Pakai: Salin seluruh isi teks ini ke menu "SQL Editor" di Supabase
 --             lalu klik tombol "Run".
 -- ============================================================================
+
+ALTER ROLE anon SET statement_timeout = '15s';
+ALTER ROLE authenticated SET statement_timeout = '15s';
+ALTER ROLE authenticator SET statement_timeout = '20s';
+ALTER ROLE authenticator SET lock_timeout = '15s';
 
 CREATE TABLE IF NOT EXISTS public.cbt_app_state (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -58,6 +65,8 @@ CREATE TABLE IF NOT EXISTS public.cbt_submissions (
 
 CREATE INDEX IF NOT EXISTS idx_cbt_submissions_packet ON public.cbt_submissions(packet_id);
 CREATE INDEX IF NOT EXISTS idx_cbt_submissions_student ON public.cbt_submissions(student_id);
+CREATE INDEX IF NOT EXISTS idx_cbt_submissions_schedule ON public.cbt_submissions(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_cbt_submissions_updated_at ON public.cbt_submissions(updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS public.cbt_live_participants (
   schedule_id TEXT NOT NULL,
@@ -70,6 +79,7 @@ CREATE TABLE IF NOT EXISTS public.cbt_live_participants (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cbt_live_participants_schedule ON public.cbt_live_participants(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_cbt_live_participants_updated_at ON public.cbt_live_participants(updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS public.cbt_live_events (
   id BIGSERIAL PRIMARY KEY,
@@ -79,6 +89,33 @@ CREATE TABLE IF NOT EXISTS public.cbt_live_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cbt_live_events_ts ON public.cbt_live_events(timestamp);
+
+ALTER TABLE public.cbt_app_state SET (
+  autovacuum_vacuum_threshold = 2,
+  autovacuum_vacuum_scale_factor = 0.0,
+  autovacuum_analyze_threshold = 2,
+  autovacuum_analyze_scale_factor = 0.0
+);
+
+ALTER TABLE public.cbt_live_participants SET (
+  autovacuum_vacuum_threshold = 25,
+  autovacuum_vacuum_scale_factor = 0.05,
+  autovacuum_analyze_threshold = 25,
+  autovacuum_analyze_scale_factor = 0.02,
+  fillfactor = 80
+);
+
+ALTER TABLE public.cbt_live_events SET (
+  autovacuum_vacuum_threshold = 50,
+  autovacuum_vacuum_scale_factor = 0.05,
+  autovacuum_analyze_scale_factor = 0.02
+);
+
+ALTER TABLE public.cbt_submissions SET (
+  autovacuum_vacuum_scale_factor = 0.05,
+  autovacuum_analyze_scale_factor = 0.02,
+  fillfactor = 90
+);
 
 ALTER TABLE public.cbt_app_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cbt_submissions ENABLE ROW LEVEL SECURITY;
@@ -99,7 +136,23 @@ CREATE POLICY "cbt_live_participants_all" ON public.cbt_live_participants
 
 DROP POLICY IF EXISTS "cbt_live_events_all" ON public.cbt_live_events;
 CREATE POLICY "cbt_live_events_all" ON public.cbt_live_events
-  FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);`;
+  FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('cbt-media', 'cbt-media', true, 10485760)
+ON CONFLICT (id) DO UPDATE SET public = true, file_size_limit = 10485760;
+
+DROP POLICY IF EXISTS "cbt_media_public_read" ON storage.objects;
+CREATE POLICY "cbt_media_public_read" ON storage.objects
+  FOR SELECT TO anon, authenticated USING (bucket_id = 'cbt-media');
+
+DROP POLICY IF EXISTS "cbt_media_upload_insert" ON storage.objects;
+CREATE POLICY "cbt_media_upload_insert" ON storage.objects
+  FOR INSERT TO anon, authenticated WITH CHECK (bucket_id = 'cbt-media');
+
+DROP POLICY IF EXISTS "cbt_media_upload_update" ON storage.objects;
+CREATE POLICY "cbt_media_upload_update" ON storage.objects
+  FOR UPDATE TO anon, authenticated USING (bucket_id = 'cbt-media') WITH CHECK (bucket_id = 'cbt-media');`;
 
 function normalizeSupabaseUrl(rawUrl?: string): string {
   if (!rawUrl) return '';
@@ -189,6 +242,283 @@ async function fetchWithRetry(
   throw lastError;
 }
 
+async function computeBufferHashHex(buf: ArrayBuffer): Promise<string> {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+        .slice(0, 20);
+    }
+  } catch {
+    // Fallback for non-secure LAN HTTP context
+  }
+  const bytes = new Uint8Array(buf);
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < bytes.length; i++) {
+    h1 ^= bytes[i];
+    h1 = Math.imul(h1, 0x01000193) >>> 0;
+    h2 ^= bytes[i] + (i & 0xff);
+    h2 = Math.imul(h2, 0x85ebca6b) >>> 0;
+  }
+  return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}${bytes.length.toString(16)}`;
+}
+
+function extFromMimeType(mime: string, fallback = 'bin'): string {
+  const m = mime.toLowerCase();
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
+  if (m.includes('png')) return 'png';
+  if (m.includes('webp')) return 'webp';
+  if (m.includes('gif')) return 'gif';
+  if (m.includes('svg')) return 'svg';
+  if (m.includes('mpeg') || m.includes('mp3')) return 'mp3';
+  if (m.includes('ogg')) return 'ogg';
+  if (m.includes('wav')) return 'wav';
+  if (m.includes('webm')) return 'webm';
+  if (m.includes('mp4') || m.includes('m4a')) return 'm4a';
+  return fallback;
+}
+
+/**
+ * Uploads a compressed image or audio Blob directly to the `cbt-media` bucket on
+ * Supabase Storage Pro CDN with immutable 1-year caching and SHA-256 deduplication.
+ * Returns the public CDN URL on success, or `null` if offline / local-only.
+ */
+export async function uploadBlobToSupabaseStorage(
+  blob: Blob,
+  folder: 'questions' | 'audio' = 'questions',
+  customCfg?: SupabaseCloudConfig | null
+): Promise<string | null> {
+  const cfg = customCfg || getSupabaseConfig();
+  if (!cfg || !cfg.url || !cfg.anonKey) return null;
+
+  try {
+    const buf = await blob.arrayBuffer();
+    const hash = await computeBufferHashHex(buf);
+    const mime = blob.type || (folder === 'audio' ? 'audio/mpeg' : 'image/jpeg');
+    const ext = extFromMimeType(mime, folder === 'audio' ? 'mp3' : 'jpg');
+    const prefix = folder === 'audio' ? 'qaud' : 'qimg';
+    const objectPath = `${folder}/${prefix}-${hash}.${ext}`;
+
+    const res = await fetchWithRetry(
+      `${cfg.url}/storage/v1/object/${SUPABASE_MEDIA_BUCKET}/${objectPath}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: cfg.anonKey,
+          Authorization: `Bearer ${cfg.anonKey}`,
+          'Content-Type': mime,
+          'x-upsert': 'true',
+          'cache-control': '31536000',
+        },
+        body: blob,
+      },
+      2,
+      500
+    );
+
+    if (!res.ok) return null;
+    return `${cfg.url}/storage/v1/object/public/${SUPABASE_MEDIA_BUCKET}/${objectPath}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Transparently offloads a Base64 `data:image/...;base64,...` or `data:audio/...;base64,...`
+ * string to Supabase Storage CDN. Preserves lightweight inline `svg+xml;utf8` diagram presets
+ * and returns the original `dataUrl` if offline so media is never lost.
+ */
+export async function uploadDataUrlToSupabaseStorage(
+  dataUrl: string,
+  folder: 'questions' | 'audio' = 'questions',
+  customCfg?: SupabaseCloudConfig | null
+): Promise<string> {
+  if (!dataUrl || !dataUrl.startsWith('data:') || !dataUrl.includes(';base64,')) {
+    return dataUrl;
+  }
+  const match = dataUrl.match(/^data:([a-zA-Z0-9/+.-]+);base64,(.+)$/);
+  if (!match) return dataUrl;
+
+  try {
+    const mime = match[1];
+    const binStr = atob(match[2]);
+    const bytes = new Uint8Array(binStr.length);
+    for (let i = 0; i < binStr.length; i++) {
+      bytes[i] = binStr.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mime });
+    const cdnUrl = await uploadBlobToSupabaseStorage(blob, folder, customCfg);
+    return cdnUrl || dataUrl;
+  } catch {
+    return dataUrl;
+  }
+}
+
+async function offloadBase64InPackets(
+  packets: ExamPacket[],
+  cfg: SupabaseCloudConfig,
+  onlyPacketIds?: Set<string>
+): Promise<ExamPacket[]> {
+  let anyChanged = false;
+  const result: ExamPacket[] = [];
+
+  for (const pkt of packets) {
+    if (!pkt || !Array.isArray(pkt.questions) || pkt.questions.length === 0) {
+      result.push(pkt);
+      continue;
+    }
+    if (onlyPacketIds && onlyPacketIds.size > 0 && !onlyPacketIds.has(pkt.id)) {
+      result.push(pkt);
+      continue;
+    }
+
+    const hasInlineB64 = pkt.questions.some(
+      (q) =>
+        (typeof q?.mediaImageUrl === 'string' &&
+          q.mediaImageUrl.includes(';base64,') &&
+          q.mediaImageUrl.length > 4096) ||
+        (typeof q?.mediaAudioUrl === 'string' &&
+          q.mediaAudioUrl.includes(';base64,') &&
+          q.mediaAudioUrl.length > 4096)
+    );
+    if (!hasInlineB64) {
+      result.push(pkt);
+      continue;
+    }
+
+    let pktChanged = false;
+    const nextQuestions = await Promise.all(
+      pkt.questions.map(async (q) => {
+        if (!q) return q;
+        let qChanged = false;
+        let nextImg = q.mediaImageUrl;
+        let nextAud = q.mediaAudioUrl;
+        if (nextImg && nextImg.includes(';base64,') && nextImg.length > 4096) {
+          const uploaded = await uploadDataUrlToSupabaseStorage(nextImg, 'questions', cfg);
+          if (uploaded !== nextImg) {
+            nextImg = uploaded;
+            qChanged = true;
+            pktChanged = true;
+          }
+        }
+        if (nextAud && nextAud.includes(';base64,') && nextAud.length > 4096) {
+          const uploaded = await uploadDataUrlToSupabaseStorage(nextAud, 'audio', cfg);
+          if (uploaded !== nextAud) {
+            nextAud = uploaded;
+            qChanged = true;
+            pktChanged = true;
+          }
+        }
+        return qChanged ? { ...q, mediaImageUrl: nextImg, mediaAudioUrl: nextAud } : q;
+      })
+    );
+
+    if (pktChanged) {
+      anyChanged = true;
+      result.push({ ...pkt, questions: nextQuestions });
+    } else {
+      result.push(pkt);
+    }
+  }
+
+  return anyChanged ? result : packets;
+}
+
+/**
+ * Fetches all rows from a PostgREST endpoint using automatic `Range` pagination
+ * (1,000 rows per page) so large school exams with thousands of submissions
+ * across 600+ students never truncate at PostgREST row limits.
+ */
+async function fetchAllPostgrestRows<T = any>(
+  endpointUrl: string,
+  anonKey: string,
+  options?: { lowPriority?: boolean; pageSize?: number; maxPages?: number }
+): Promise<{ ok: boolean; rows: T[] }> {
+  const pageSize = options?.pageSize || 1000;
+  const maxPages = options?.maxPages || 50;
+  const allRows: T[] = [];
+
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+    const reqInit: RequestInit & { priority?: 'low' | 'high' | 'auto' } = {
+      headers: buildHeaders(anonKey, {
+        'Range-Unit': 'items',
+        Range: `${from}-${to}`,
+      }),
+      cache: 'no-store',
+    };
+    if (options?.lowPriority) {
+      reqInit.priority = 'low';
+    }
+
+    const res = await fetch(endpointUrl, reqInit as RequestInit);
+    if (!res.ok) {
+      return page === 0 ? { ok: false, rows: [] } : { ok: true, rows: allRows };
+    }
+    const batch = await res.json();
+    if (!Array.isArray(batch) || batch.length === 0) {
+      break;
+    }
+    allRows.push(...batch);
+    if (batch.length < pageSize) {
+      break;
+    }
+  }
+
+  return { ok: true, rows: allRows };
+}
+
+function parseContentRangeTotal(contentRange: string | null): number | null {
+  if (!contentRange) return null;
+  const slashIdx = contentRange.lastIndexOf('/');
+  if (slashIdx === -1) return null;
+  const totalPart = contentRange.slice(slashIdx + 1).trim();
+  const parsed = Number(totalPart);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+export function mergeLiveParticipantsIntoSchedules(
+  rawSchedules: ExamSchedule[],
+  lpRows: any[]
+): ExamSchedule[] {
+  const bySchedule = new Map<string, LiveParticipant[]>();
+  if (Array.isArray(lpRows)) {
+    for (const r of lpRows) {
+      const schId = r?.schedule_id as string;
+      const p = r?.payload_json as LiveParticipant;
+      if (!schId || !p) continue;
+      const list = bySchedule.get(schId) || [];
+      list.push(p);
+      bySchedule.set(schId, list);
+    }
+  }
+
+  return rawSchedules.map((sch) => {
+    const cloudParticipants = bySchedule.get(sch.id);
+    if (!cloudParticipants || cloudParticipants.length === 0) return sch;
+    const mergedMap = new Map<string, LiveParticipant>();
+    for (const existing of sch.liveParticipants || []) {
+      mergedMap.set(existing.studentId || existing.nomorPeserta, existing);
+    }
+    for (const cp of cloudParticipants) {
+      mergedMap.set(cp.studentId || cp.nomorPeserta, cp);
+    }
+    const list = Array.from(mergedMap.values());
+    const selesaiCount = list.filter((p) => p.status === 'SELESAI').length;
+    const hadirCount = list.filter((p) => p.status !== 'BELUM_LOGIN').length;
+    return {
+      ...sch,
+      liveParticipants: list,
+      selesaiCount,
+      hadirCount: Math.max(sch.hadirCount || 0, hadirCount),
+    };
+  });
+}
+
 export async function checkSupabaseConnection(
   customUrl?: string,
   customAnonKey?: string
@@ -208,10 +538,16 @@ export async function checkSupabaseConnection(
   }
 
   try {
-    const stateRes = await fetch(
-      `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=id,updated_at,packets_json,schedules_json,students_json,teachers_json`,
-      { headers: buildHeaders(cfg.anonKey), cache: 'no-store' }
-    );
+    const [stateRes, subCountRes] = await Promise.all([
+      fetch(
+        `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=id,updated_at,packets_json,schedules_json,students_json,teachers_json`,
+        { headers: buildHeaders(cfg.anonKey), cache: 'no-store' }
+      ),
+      fetch(`${cfg.url}/rest/v1/cbt_submissions?select=id&limit=1`, {
+        headers: buildHeaders(cfg.anonKey, { Prefer: 'count=exact' }),
+        cache: 'no-store',
+      }),
+    ]);
     if (!stateRes.ok) {
       const errText = await stateRes.text();
       return {
@@ -227,12 +563,9 @@ export async function checkSupabaseConnection(
 
     const rows = await stateRes.json();
     const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-
-    const subRes = await fetch(`${cfg.url}/rest/v1/cbt_submissions?select=id`, {
-      headers: buildHeaders(cfg.anonKey),
-      cache: 'no-store',
-    });
-    const subRows = subRes.ok ? await subRes.json() : [];
+    const exactSubCount = subCountRes.ok
+      ? parseContentRangeTotal(subCountRes.headers.get('content-range'))
+      : 0;
 
     const legacyDummyPackets = new Set([
       'pkt-mts-01',
@@ -262,7 +595,7 @@ export async function checkSupabaseConnection(
         schedules: cleanSchedulesCount,
         students: Array.isArray(row?.students_json) ? row.students_json.length : 0,
         teachers: cleanTeachersCount,
-        submissions: Array.isArray(subRows) ? subRows.length : 0,
+        submissions: exactSubCount ?? 0,
       },
     };
   } catch (err: any) {
@@ -280,18 +613,20 @@ let lastKnownCloudUpdatedAt = '';
 /**
  * Lightweight 65-byte Egress check: reads ONLY `updated_at` from `cbt_app_state` (id=1)
  * so background polling saves ~99.997% of Supabase Egress bandwidth instead of re-downloading
- * the entire multi-megabyte `packets_json` blob every 15 seconds when nothing changed.
+ * `packets_json` every 15 seconds when nothing changed.
  */
 export async function hasCloudStateChanged(cfg?: SupabaseCloudConfig | null): Promise<boolean> {
   const activeCfg = cfg || getSupabaseConfig();
   if (!activeCfg) return false;
   try {
+    const reqInit: RequestInit & { priority?: 'low' } = {
+      headers: buildHeaders(activeCfg.anonKey),
+      cache: 'no-store',
+      priority: 'low',
+    };
     const res = await fetch(
       `${activeCfg.url}/rest/v1/cbt_app_state?id=eq.1&select=updated_at`,
-      {
-        headers: buildHeaders(activeCfg.anonKey),
-        cache: 'no-store',
-      }
+      reqInit as RequestInit
     );
     if (!res.ok) return false;
     const rows = await res.json();
@@ -301,6 +636,49 @@ export async function hasCloudStateChanged(cfg?: SupabaseCloudConfig | null): Pr
     return remoteTs !== lastKnownCloudUpdatedAt;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Lightweight Live Proctor & Rekap Nilai fetcher: reads ONLY `cbt_live_participants`
+ * and `cbt_submissions` with auto-pagination, bypassing `cbt_app_state` (`packets_json`)
+ * when master bank soal has not changed.
+ */
+export async function loadLiveTablesFromSupabase(cfg?: SupabaseCloudConfig | null): Promise<{
+  ok: boolean;
+  liveParticipantRows: any[];
+  submissions: ExamSubmission[];
+} | null> {
+  const activeCfg = cfg || getSupabaseConfig();
+  if (!activeCfg) return null;
+
+  try {
+    const [lpResult, subResult] = await Promise.all([
+      fetchAllPostgrestRows(
+        `${activeCfg.url}/rest/v1/cbt_live_participants?select=*&order=updated_at.desc`,
+        activeCfg.anonKey,
+        { lowPriority: true }
+      ),
+      fetchAllPostgrestRows(
+        `${activeCfg.url}/rest/v1/cbt_submissions?select=*&order=updated_at.desc`,
+        activeCfg.anonKey,
+        { lowPriority: true }
+      ),
+    ]);
+
+    if (!lpResult.ok && !subResult.ok) return null;
+
+    const submissions: ExamSubmission[] = subResult.rows
+      .map((r: any) => r?.payload_json as ExamSubmission)
+      .filter((s): s is ExamSubmission => Boolean(s && s.id));
+
+    return {
+      ok: true,
+      liveParticipantRows: lpResult.rows,
+      submissions,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -318,19 +696,19 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
   if (!activeCfg) return null;
 
   try {
-    const [stateRes, lpRes, subRes] = await Promise.all([
+    const [stateRes, lpResult, subResult] = await Promise.all([
       fetch(`${activeCfg.url}/rest/v1/cbt_app_state?id=eq.1&select=*`, {
         headers: buildHeaders(activeCfg.anonKey),
         cache: 'no-store',
       }),
-      fetch(`${activeCfg.url}/rest/v1/cbt_live_participants?select=*`, {
-        headers: buildHeaders(activeCfg.anonKey),
-        cache: 'no-store',
-      }),
-      fetch(`${activeCfg.url}/rest/v1/cbt_submissions?select=*&order=updated_at.desc`, {
-        headers: buildHeaders(activeCfg.anonKey),
-        cache: 'no-store',
-      }),
+      fetchAllPostgrestRows(
+        `${activeCfg.url}/rest/v1/cbt_live_participants?select=*&order=updated_at.desc`,
+        activeCfg.anonKey
+      ),
+      fetchAllPostgrestRows(
+        `${activeCfg.url}/rest/v1/cbt_submissions?select=*&order=updated_at.desc`,
+        activeCfg.anonKey
+      ),
     ]);
 
     if (!stateRes.ok) return null;
@@ -351,50 +729,15 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
     if (master?.updated_at) {
       lastKnownCloudUpdatedAt = String(master.updated_at);
     }
-    const lpRows = lpRes.ok ? await lpRes.json() : [];
-    const subRows = subRes.ok ? await subRes.json() : [];
-
-    const bySchedule = new Map<string, LiveParticipant[]>();
-    if (Array.isArray(lpRows)) {
-      for (const r of lpRows) {
-        const schId = r.schedule_id as string;
-        const p = r.payload_json as LiveParticipant;
-        if (!schId || !p) continue;
-        const list = bySchedule.get(schId) || [];
-        list.push(p);
-        bySchedule.set(schId, list);
-      }
-    }
 
     const rawSchedules: ExamSchedule[] = Array.isArray(master.schedules_json)
       ? master.schedules_json
       : [];
-    const mergedSchedules: ExamSchedule[] = rawSchedules.map((sch) => {
-      const cloudParticipants = bySchedule.get(sch.id);
-      if (!cloudParticipants || cloudParticipants.length === 0) return sch;
-      const mergedMap = new Map<string, LiveParticipant>();
-      for (const existing of sch.liveParticipants || []) {
-        mergedMap.set(existing.studentId || existing.nomorPeserta, existing);
-      }
-      for (const cp of cloudParticipants) {
-        mergedMap.set(cp.studentId || cp.nomorPeserta, cp);
-      }
-      const list = Array.from(mergedMap.values());
-      const selesaiCount = list.filter((p) => p.status === 'SELESAI').length;
-      const hadirCount = list.filter((p) => p.status !== 'BELUM_LOGIN').length;
-      return {
-        ...sch,
-        liveParticipants: list,
-        selesaiCount,
-        hadirCount: Math.max(sch.hadirCount || 0, hadirCount),
-      };
-    });
+    const mergedSchedules = mergeLiveParticipantsIntoSchedules(rawSchedules, lpResult.rows);
 
-    const submissions: ExamSubmission[] = Array.isArray(subRows)
-      ? subRows
-          .map((r: any) => r.payload_json as ExamSubmission)
-          .filter((s): s is ExamSubmission => Boolean(s && s.id))
-      : [];
+    const submissions: ExamSubmission[] = subResult.rows
+      .map((r: any) => r?.payload_json as ExamSubmission)
+      .filter((s): s is ExamSubmission => Boolean(s && s.id));
 
     const loadedSettings = master.settings_json as SchoolSettings | undefined;
     if (loadedSettings && (!loadedSettings.supabaseUrl || !loadedSettings.supabaseAnonKey)) {
@@ -1196,6 +1539,15 @@ export async function patchMasterColumnInSupabase(
           }
         }
 
+      if (Array.isArray(workingColumns.packets_json)) {
+        const dirtyPktSet = getDirtyEntityIds('packets_json');
+        workingColumns.packets_json = await offloadBase64InPackets(
+          workingColumns.packets_json,
+          cfg,
+          dirtyPktSet.size > 0 ? dirtyPktSet : undefined
+        );
+      }
+
       const nowIso = new Date().toISOString();
       const patchBody = {
         ...workingColumns,
@@ -1203,7 +1555,7 @@ export async function patchMasterColumnInSupabase(
       };
 
       const res = await fetchWithRetry(
-        `${cfg.url}/rest/v1/cbt_app_state?id=eq.1`,
+        `${cfg.url}/rest/v1/cbt_app_state?id=eq.1&select=id`,
         {
           method: 'PATCH',
           headers: buildHeaders(cfg.anonKey, {
@@ -1371,6 +1723,8 @@ export async function saveMasterStateToSupabase(
         }
       }
     }
+
+    finalPackets = await offloadBase64InPackets(finalPackets, cfg);
 
     const nowIso = new Date().toISOString();
     const stateBody = {
@@ -1605,9 +1959,14 @@ export async function pollEventsFromSupabase(sinceTs: number): Promise<LiveSyncM
   if (!cfg) return [];
 
   try {
+    const reqInit: RequestInit & { priority?: 'low' } = {
+      headers: buildHeaders(cfg.anonKey),
+      cache: 'no-store',
+      priority: 'low',
+    };
     const res = await fetch(
       `${cfg.url}/rest/v1/cbt_live_events?timestamp=gt.${sinceTs}&order=id.asc&limit=100`,
-      { headers: buildHeaders(cfg.anonKey) }
+      reqInit as RequestInit
     );
     if (!res.ok) return [];
     const rows = await res.json();

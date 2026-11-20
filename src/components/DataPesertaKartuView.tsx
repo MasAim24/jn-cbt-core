@@ -79,6 +79,21 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
     authSession.peran === 'Kepala Madrasah / Mudir' ||
     authSession.peran === 'Koordinator Kurikulum';
   const [searchQuery, setSearchQuery] = useState('');
+  const [mtsFilter, setMtsFilter] = useState<
+    | 'ALL'
+    | 'VII'
+    | 'VII-A'
+    | 'VII-B'
+    | 'VIII'
+    | 'VIII-A'
+    | 'VIII-B'
+    | 'VIII-C'
+    | 'IX'
+    | 'IX-A'
+    | 'IX-B'
+    | 'IX-C'
+    | 'IX-D'
+  >('ALL');
   const [maFilter, setMaFilter] = useState<'ALL' | 'XI' | 'XII' | 'MIPA' | 'IPS' | 'UNSET'>(
     'ALL'
   );
@@ -151,6 +166,17 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
         ? resolvedJurusan === 'IPS'
         : resolvedJurusan === '';
 
+    const matchMtsFilter =
+      mtsFilter === 'ALL' || s.jenjang !== 'MTs'
+        ? true
+        : mtsFilter === 'VII'
+        ? /^VII\b/i.test(upperKelas)
+        : mtsFilter === 'VIII'
+        ? /^VIII\b/i.test(upperKelas)
+        : mtsFilter === 'IX'
+        ? /^IX\b/i.test(upperKelas)
+        : upperKelas === mtsFilter;
+
     const matchSearch =
       !searchQuery.trim() ||
       s.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -159,7 +185,7 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
       s.kelas.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (s.tempatLahir || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.ruang.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchJenjang && matchWaliKelas && matchMaFilter && matchSearch;
+    return matchJenjang && matchWaliKelas && matchMtsFilter && matchMaFilter && matchSearch;
   });
 
   const filteredTeachers = teachers.filter((t) => {
@@ -563,6 +589,29 @@ export const DataPesertaKartuView: React.FC<DataPesertaKartuViewProps> = ({
               className="bg-transparent text-text-main focus:outline-none w-52"
             />
           </div>
+
+          {subTab !== 'GURU' && (selectedJenjang === 'ALL' || selectedJenjang === 'MTs') && (
+            <select
+              value={mtsFilter}
+              onChange={(e) => setMtsFilter(e.target.value as any)}
+              className="px-3 py-1.5 rounded-xl bg-elevated border border-border-subtle text-xs font-extrabold text-text-main focus:outline-none"
+              title="Filter Kelas & Rombel MTs (VII / VIII / IX)"
+            >
+              <option value="ALL">Filter MTs: Semua Rombel (225 Santri)</option>
+              <option value="VII">Semua Kelas VII MTs (55 Santri)</option>
+              <option value="VII-A">• Kelas VII-A (23 Santri)</option>
+              <option value="VII-B">• Kelas VII-B (32 Santri)</option>
+              <option value="VIII">Semua Kelas VIII MTs (63 Santri)</option>
+              <option value="VIII-A">• Kelas VIII-A (21 Santri)</option>
+              <option value="VIII-B">• Kelas VIII-B (22 Santri)</option>
+              <option value="VIII-C">• Kelas VIII-C (20 Santri)</option>
+              <option value="IX">Semua Kelas IX MTs (107 Santri)</option>
+              <option value="IX-A">• Kelas IX-A (29 Santri)</option>
+              <option value="IX-B">• Kelas IX-B (28 Santri)</option>
+              <option value="IX-C">• Kelas IX-C (27 Santri)</option>
+              <option value="IX-D">• Kelas IX-D (23 Santri)</option>
+            </select>
+          )}
 
           {subTab !== 'GURU' && (selectedJenjang === 'ALL' || selectedJenjang === 'MA') && (
             <select

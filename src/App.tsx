@@ -216,6 +216,7 @@ export function App() {
       'std-imp-1793664205470-0',
       'std-imp-1793664205470-1',
       'std-imp-1793664205470-2',
+      'std-1793843413227',
     ]);
     const legacyDummyTeachers = new Set(['tch-1', 'tch-2', 'tch-3', 'tch-4']);
     const legacyDummySubs = new Set(['sub-01', 'sub-02', 'sub-03', 'sub-04']);
@@ -326,7 +327,22 @@ export function App() {
             if (pendingNow.students_json) {
               setStudents(pendingNow.students_json);
             } else if (Array.isArray(cloudLoaded.students) && cloudLoaded.students.length > 0) {
-              setStudents(cloudLoaded.students);
+              const deletedStudentSet = getDeletedEntityIds();
+              const cloudIds = new Set(cloudLoaded.students.map((s) => s.id));
+              const missingBaseline = INITIAL_STUDENTS.filter(
+                (s) => !cloudIds.has(s.id) && !deletedStudentSet.has(s.id)
+              );
+              if (missingBaseline.length > 0) {
+                const mergedStudents = [...missingBaseline, ...cloudLoaded.students];
+                setStudents(mergedStudents);
+                await patchMasterColumnInSupabase(
+                  { students_json: mergedStudents },
+                  supaCfg,
+                  { modifiedIds: missingBaseline.map((s) => s.id) }
+                );
+              } else {
+                setStudents(cloudLoaded.students);
+              }
             } else if (INITIAL_STUDENTS.length > 0) {
               setStudents(INITIAL_STUDENTS);
               await patchMasterColumnInSupabase(

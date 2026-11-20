@@ -769,6 +769,7 @@ export async function loadStateFromSupabase(cfg?: SupabaseCloudConfig | null): P
       'std-imp-1793664205470-0',
       'std-imp-1793664205470-1',
       'std-imp-1793664205470-2',
+      'std-1793843413227',
     ]);
     const legacyDummyTeachers = new Set(['tch-1', 'tch-2', 'tch-3', 'tch-4']);
     const cleanPackets = Array.isArray(master.packets_json)
@@ -1106,6 +1107,7 @@ const LEGACY_DUMMY_ALL_IDS = new Set([
   'std-imp-1793664205470-0',
   'std-imp-1793664205470-1',
   'std-imp-1793664205470-2',
+  'std-1793843413227',
   'tch-1',
   'tch-2',
   'tch-3',

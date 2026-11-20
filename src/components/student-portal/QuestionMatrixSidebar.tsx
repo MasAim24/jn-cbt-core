@@ -1,9 +1,10 @@
 import React from 'react';
-import { AlertTriangle, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, Loader2, ShieldCheck, X } from 'lucide-react';
 import { ExamPacket, Question } from '../../types/cbt';
 
 interface QuestionMatrixSidebarProps {
   activePacket: ExamPacket;
+  questions?: Question[];
   currentIndex: number;
   onSelectIndex: (idx: number) => void;
   isQuestionAnswered: (q: Question) => boolean;
@@ -12,11 +13,13 @@ interface QuestionMatrixSidebarProps {
   doubtTotalCount: number;
   unansweredTotalCount: number;
   violationCount: number;
+  isSubmitting?: boolean;
   onOpenConfirmSubmit: () => void;
 }
 
 export const QuestionMatrixSidebar: React.FC<QuestionMatrixSidebarProps> = ({
   activePacket,
+  questions,
   currentIndex,
   onSelectIndex,
   isQuestionAnswered,
@@ -25,13 +28,16 @@ export const QuestionMatrixSidebar: React.FC<QuestionMatrixSidebarProps> = ({
   doubtTotalCount,
   unansweredTotalCount,
   violationCount,
+  isSubmitting = false,
   onOpenConfirmSubmit,
 }) => {
+  const list = questions || activePacket.questions;
+
   return (
     <div className="lg:col-span-4 rounded-[26px] bg-elevated p-6 shadow-card border border-border-subtle/60 space-y-5">
       <div>
         <h3 className="text-sm font-extrabold text-text-main">
-          Navigasi Nomor Soal ({answeredTotalCount}/{activePacket.questions.length} Dijawab)
+          Navigasi Nomor Soal ({answeredTotalCount}/{list.length} Dijawab)
         </h3>
         <p className="text-[11px] text-text-muted mt-0.5">
           Klik nomor atau gunakan panah Kiri/Kanan keyboard.
@@ -39,7 +45,7 @@ export const QuestionMatrixSidebar: React.FC<QuestionMatrixSidebarProps> = ({
       </div>
 
       <div className="grid grid-cols-4 gap-2.5">
-        {activePacket.questions.map((q, idx) => {
+        {list.map((q, idx) => {
           const answered = isQuestionAnswered(q);
           const isDoubt = doubtFlags[q.id];
           const isCurrent = idx === currentIndex;
@@ -61,12 +67,14 @@ export const QuestionMatrixSidebar: React.FC<QuestionMatrixSidebarProps> = ({
               onClick={() => onSelectIndex(idx)}
               className={`h-11 rounded-xl border font-extrabold text-xs transition flex flex-col items-center justify-center ${btnClass}`}
             >
-              <span>{q.nomor}</span>
+              <span>{idx + 1}</span>
               <span className="text-[9px] opacity-80 whitespace-nowrap">
                 {q.type === 'PG'
                   ? 'PG'
                   : q.type === 'PG_KOMPLEKS'
                   ? 'PGK'
+                  : q.type === 'MENJODOHKAN'
+                  ? 'JDH'
                   : q.type === 'BENAR_SALAH'
                   ? 'B/S'
                   : 'ESAI'}
@@ -107,10 +115,12 @@ export const QuestionMatrixSidebar: React.FC<QuestionMatrixSidebarProps> = ({
 
       <button
         type="button"
+        disabled={isSubmitting}
         onClick={onOpenConfirmSubmit}
-        className="w-full py-3 rounded-2xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold transition shadow-md"
+        className="w-full py-3 rounded-2xl bg-[#211955] hover:bg-[#2d2270] disabled:opacity-60 text-white text-xs font-extrabold transition shadow-md inline-flex items-center justify-center gap-2"
       >
-        Kumpulkan Seluruh Jawaban
+        {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+        <span>{isSubmitting ? 'Mengirim Jawaban ke Server...' : 'Kumpulkan Seluruh Jawaban'}</span>
       </button>
     </div>
   );
@@ -120,6 +130,7 @@ interface ConfirmSubmitModalProps {
   answeredTotalCount: number;
   doubtTotalCount: number;
   unansweredTotalCount: number;
+  isSubmitting?: boolean;
   onClose: () => void;
   onConfirmFinish: () => void;
 }
@@ -128,6 +139,7 @@ export const ConfirmSubmitModal: React.FC<ConfirmSubmitModalProps> = ({
   answeredTotalCount,
   doubtTotalCount,
   unansweredTotalCount,
+  isSubmitting = false,
   onClose,
   onConfirmFinish,
 }) => {
@@ -138,12 +150,14 @@ export const ConfirmSubmitModal: React.FC<ConfirmSubmitModalProps> = ({
           <h3 className="text-lg font-extrabold text-text-main">
             Konfirmasi Selesai Ujian
           </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl hover:bg-surface text-text-muted"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {!isSubmitting && (
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-xl hover:bg-surface text-text-muted"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-3 text-xs">
@@ -175,23 +189,26 @@ export const ConfirmSubmitModal: React.FC<ConfirmSubmitModalProps> = ({
 
           <p className="text-text-muted leading-relaxed">
             Setelah jawaban dikumpulkan, Anda tidak dapat mengubah jawaban lagi dan skor akan
-            langsung direkap ke server.
+            langsung direkap ke server pusat.
           </p>
 
           <div className="pt-2 flex justify-end gap-2">
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl bg-surface text-text-main font-bold"
+              className="px-4 py-2.5 rounded-xl bg-surface text-text-main font-bold disabled:opacity-50"
             >
               Periksa Kembali
             </button>
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onConfirmFinish}
-              className="px-5 py-2.5 rounded-xl bg-[#14B894] hover:bg-[#0b987c] text-white font-extrabold shadow-sm"
+              className="px-5 py-2.5 rounded-xl bg-[#14B894] hover:bg-[#0b987c] disabled:opacity-70 text-white font-extrabold shadow-sm inline-flex items-center gap-2"
             >
-              Ya, Kumpulkan Jawaban
+              {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>{isSubmitting ? 'Menyimpan ke Cloud...' : 'Ya, Kumpulkan Jawaban'}</span>
             </button>
           </div>
         </div>

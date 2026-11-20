@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { ArrowLeft, ArrowLeftRight, ArrowRight, CheckCircle2, Flag } from 'lucide-react';
-import { Question } from '../../types/cbt';
+import { Question, QuestionOption } from '../../types/cbt';
 import { QuestionMediaAttachment } from '../common/QuestionMediaAttachment';
 import { formatMathNotation } from '../../utils/mathSymbolHelper';
 
@@ -22,11 +22,31 @@ const ESSAY_MATH_SYMBOLS = [
   { char: '°', display: '°' },
 ];
 
+const VISUAL_LABELS: ('A' | 'B' | 'C' | 'D' | 'E')[] = ['A', 'B', 'C', 'D', 'E'];
+
+function seededShuffleArray<T>(items: T[], seedStr: string): T[] {
+  if (items.length <= 1) return [...items];
+  let hash = 2166136261 >>> 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    hash ^= seedStr.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    hash = (Math.imul(hash, 1664525) + 1013904223) >>> 0;
+    const j = hash % (i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 interface ActiveQuestionCanvasProps {
   currentQuestion: Question;
   currentIndex: number;
   totalQuestions: number;
   fontScale: 'normal' | 'large' | 'xlarge';
+  acakOpsi?: boolean;
+  studentSeed?: string;
   pgAnswers: Record<string, 'A' | 'B' | 'C' | 'D' | 'E'>;
   onSelectPg: (qId: string, label: 'A' | 'B' | 'C' | 'D' | 'E') => void;
   pgkAnswers: Record<string, ('A' | 'B' | 'C' | 'D' | 'E')[]>;
@@ -49,6 +69,8 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
   currentIndex,
   totalQuestions,
   fontScale,
+  acakOpsi = true,
+  studentSeed = 'default',
   pgAnswers,
   onSelectPg,
   pgkAnswers,
@@ -74,33 +96,28 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
   const bodySizeClass =
     fontScale === 'normal' ? 'text-sm' : fontScale === 'large' ? 'text-base' : 'text-lg';
 
+  const displayedOptions: QuestionOption[] = useMemo(() => {
+    const rawOpts = currentQuestion.options || [];
+    if (!acakOpsi || rawOpts.length <= 1) return rawOpts;
+    return seededShuffleArray(rawOpts, `${studentSeed}:opts:${currentQuestion.id}`);
+  }, [currentQuestion.id, currentQuestion.options, acakOpsi, studentSeed]);
+
   const shuffledRightOptions = useMemo(() => {
     const pairs = currentQuestion.matchingPairs || [];
     const list = pairs.map((p) => p.rightText);
-    const seedStr = currentQuestion.id || 'seed';
-    let hash = 0;
-    for (let i = 0; i < seedStr.length; i++) {
-      hash = (hash * 31 + seedStr.charCodeAt(i)) >>> 0;
-    }
-    const copy = [...list];
-    for (let i = copy.length - 1; i > 0; i--) {
-      hash = (hash * 1664525 + 1013904223) >>> 0;
-      const j = hash % (i + 1);
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    // Ensure it's not identical to original order when length >= 2
+    const copy = seededShuffleArray(list, `${studentSeed}:match:${currentQuestion.id}`);
     if (copy.length >= 2 && copy.every((val, idx) => val === list[idx])) {
       [copy[0], copy[copy.length - 1]] = [copy[copy.length - 1], copy[0]];
     }
     return copy;
-  }, [currentQuestion.id, currentQuestion.matchingPairs]);
+  }, [currentQuestion.id, currentQuestion.matchingPairs, studentSeed]);
 
   return (
     <div className="lg:col-span-8 rounded-[26px] bg-elevated p-6 sm:p-7 shadow-card border border-border-subtle/60 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-4">
         <div className="flex items-center gap-2.5">
           <span className="px-3.5 py-1.5 rounded-xl bg-[#211955] text-white text-xs font-extrabold">
-            SOAL NO. {currentQuestion.nomor}
+            SOAL NO. {currentIndex + 1}
           </span>
           <span className="px-3 py-1 rounded-xl bg-indigo-50 text-[#211955] text-xs font-extrabold">
             {currentQuestion.type === 'PG'
@@ -140,9 +157,10 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
         {currentQuestion.prompt}
       </p>
 
-      {currentQuestion.type === 'PG' && currentQuestion.options && (
+      {currentQuestion.type === 'PG' && displayedOptions.length > 0 && (
         <div className="space-y-3 pt-2">
-          {currentQuestion.options.map((opt) => {
+          {displayedOptions.map((opt, optIdx) => {
+            const visualLabel = VISUAL_LABELS[optIdx] || opt.label;
             const selected = pgAnswers[currentQuestion.id] === opt.label;
             return (
               <button
@@ -162,21 +180,29 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
                       : 'bg-elevated border border-border-subtle text-text-main'
                   }`}
                 >
-                  {opt.label}
+                  {visualLabel}
                 </span>
-                <span className={`${bodySizeClass} font-semibold`}>{opt.text}</span>
+                <div className="flex-1 min-w-0 space-y-1">
+                  {opt.arabicText && (
+                    <div dir="rtl" className="font-kitab text-xl leading-relaxed text-right">
+                      {opt.arabicText}
+                    </div>
+                  )}
+                  <span className={`${bodySizeClass} font-semibold block`}>{opt.text}</span>
+                </div>
               </button>
             );
           })}
         </div>
       )}
 
-      {currentQuestion.type === 'PG_KOMPLEKS' && currentQuestion.options && (
+      {currentQuestion.type === 'PG_KOMPLEKS' && displayedOptions.length > 0 && (
         <div className="space-y-3 pt-2">
           <p className="text-xs font-extrabold text-[#B85D19]">
             * Petunjuk: Anda dapat memilih lebih dari satu jawaban yang benar (Kotak Centang).
           </p>
-          {currentQuestion.options.map((opt) => {
+          {displayedOptions.map((opt, optIdx) => {
+            const visualLabel = VISUAL_LABELS[optIdx] || opt.label;
             const selected = (pgkAnswers[currentQuestion.id] || []).includes(opt.label);
             return (
               <button
@@ -196,9 +222,16 @@ export const ActiveQuestionCanvas: React.FC<ActiveQuestionCanvasProps> = ({
                       : 'bg-elevated border border-border-subtle text-text-main'
                   }`}
                 >
-                  {selected ? '✓' : opt.label}
+                  {selected ? '✓' : visualLabel}
                 </span>
-                <span className={`${bodySizeClass} font-semibold`}>{opt.text}</span>
+                <div className="flex-1 min-w-0 space-y-1">
+                  {opt.arabicText && (
+                    <div dir="rtl" className="font-kitab text-xl leading-relaxed text-right">
+                      {opt.arabicText}
+                    </div>
+                  )}
+                  <span className={`${bodySizeClass} font-semibold block`}>{opt.text}</span>
+                </div>
               </button>
             );
           })}

@@ -82,6 +82,7 @@ export const RekapNilaiView: React.FC<RekapNilaiViewProps> = ({
       !searchQuery.trim() ||
       s.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.nomorPeserta.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.kelas.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.mapel.toLowerCase().includes(searchQuery.toLowerCase());
     return matchStatus && matchSearch;
   });

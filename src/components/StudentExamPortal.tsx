@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Clock,
   LogOut,
@@ -6,6 +6,7 @@ import {
   Megaphone,
   Radio,
   ShieldAlert,
+  ShieldCheck,
   Unlock,
 } from 'lucide-react';
 import {
@@ -28,6 +29,43 @@ import {
   publishLiveSyncEvent,
   subscribeLiveSyncEvents,
 } from '../utils/liveProctorSync';
+import {
+  getSupabaseConfig,
+  upsertSubmissionToSupabase,
+} from '../utils/supabaseCloudClient';
+
+function seededShuffleQuestions(items: Question[], seedStr: string): Question[] {
+  if (items.length <= 1) return [...items];
+  let hash = 2166136261 >>> 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    hash ^= seedStr.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    hash = (Math.imul(hash, 1664525) + 1013904223) >>> 0;
+    const j = hash % (i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function formatWibTimestamp(): string {
+  try {
+    return (
+      new Intl.DateTimeFormat('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Jakarta',
+      }).format(new Date()) + ' WIB'
+    );
+  } catch {
+    return new Date().toLocaleString('id-ID');
+  }
+}
 
 interface StudentExamPortalProps {
   packets: ExamPacket[];
@@ -36,6 +74,7 @@ interface StudentExamPortalProps {
   settings?: SchoolSettings;
   initialPacketId?: string;
   initialStudentId?: string;
+  isRealStudentSession?: boolean;
   onExitPortal: () => void;
   onSubmitExamResult: (submission: ExamSubmission) => void;
 }
@@ -47,27 +86,50 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   settings,
   initialPacketId,
   initialStudentId,
+  isRealStudentSession = false,
   onExitPortal,
   onSubmitExamResult,
 }) => {
   const [selectedPacketId, setSelectedPacketId] = useState<string>(
     initialPacketId || packets[0]?.id || ''
   );
-  const [hasStarted, setHasStarted] = useState<boolean>(Boolean(initialPacketId));
+  const [hasStarted, setHasStarted] = useState<boolean>(
+    Boolean(initialPacketId) || isRealStudentSession
+  );
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [cloudSyncState, setCloudSyncState] = useState<'SYNCED' | 'SYNCING' | 'PENDING_RETRY'>(
+    'SYNCED'
+  );
   const [showConfirmSubmitModal, setShowConfirmSubmitModal] = useState<boolean>(false);
   const [violationCount, setViolationCount] = useState<number>(0);
   const [proctorToast, setProctorToast] = useState<string | null>(null);
   const [liveAnnouncement, setLiveAnnouncement] = useState<string | undefined>(undefined);
   const forceSubmitRef = useRef<(() => void) | null>(null);
+  const submitGuardRef = useRef<boolean>(false);
 
   const activePacket = packets.find((p) => p.id === selectedPacketId) || packets[0];
   const matchingSchedule =
-    schedules.find((s) => s.packetId === activePacket?.id) || schedules[0];
+    schedules.find((s) => s.packetId === activePacket?.id && s.status === 'LIVE') ||
+    schedules.find((s) => s.packetId === activePacket?.id) ||
+    schedules[0];
   const matchingStudent =
     (initialStudentId && students.find((s) => s.id === initialStudentId)) ||
     students.find((s) => s.jenjang === activePacket?.jenjang) ||
     students[0];
+
+  const studentSeed = matchingStudent?.id || initialStudentId || 'sim-student';
+  const isShuffleQuestionsEnabled = matchingSchedule ? matchingSchedule.acakSoal !== false : true;
+  const isShuffleOptionsEnabled = matchingSchedule ? matchingSchedule.acakOpsi !== false : true;
+
+  const displayQuestions = useMemo(() => {
+    if (!activePacket) return [];
+    if (!isShuffleQuestionsEnabled) return activePacket.questions;
+    return seededShuffleQuestions(
+      activePacket.questions,
+      `${studentSeed}:questions:${activePacket.id}`
+    );
+  }, [activePacket, isShuffleQuestionsEnabled, studentSeed]);
 
   const maxViolationsAllowed = settings?.maxViolationsAllowed || 3;
   const isLockedByAntiCheat =
@@ -94,16 +156,39 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   const [lastSubmission, setLastSubmission] = useState<ExamSubmission | null>(null);
   const hydratedProgressKeyRef = useRef<string | null>(null);
 
+  const effectiveStudentKey = matchingStudent?.id || initialStudentId;
   const progressStorageKey =
-    activePacket?.id && (matchingStudent?.id || initialStudentId)
-      ? `jn_cbt_exam_progress_v1_${matchingStudent?.id || initialStudentId}_${activePacket.id}`
+    activePacket?.id && effectiveStudentKey
+      ? `jn_cbt_exam_progress_v1_${effectiveStudentKey}_${activePacket.id}`
+      : null;
+  const unsentSubmissionKey =
+    activePacket?.id && effectiveStudentKey
+      ? `jn_cbt_unsent_submission_v1_${effectiveStudentKey}_${activePacket.id}`
       : null;
 
-  // Hydrate saved answers & remaining timer if browser refreshed mid-exam
+  // Hydrate unsent submission (if network dropped on previous submit) or saved in-progress answers
   useEffect(() => {
     if (!progressStorageKey || !activePacket) return;
     if (hydratedProgressKeyRef.current === progressStorageKey) return;
     hydratedProgressKeyRef.current = progressStorageKey;
+
+    if (unsentSubmissionKey) {
+      try {
+        const rawUnsent = localStorage.getItem(unsentSubmissionKey);
+        if (rawUnsent) {
+          const parsedUnsent = JSON.parse(rawUnsent) as ExamSubmission;
+          if (parsedUnsent && parsedUnsent.id && parsedUnsent.packetId === activePacket.id) {
+            setLastSubmission(parsedUnsent);
+            setHasStarted(true);
+            setIsSubmitted(true);
+            setCloudSyncState('PENDING_RETRY');
+            return;
+          }
+        }
+      } catch {
+        // Ignore parse error
+      }
+    }
 
     try {
       const raw = localStorage.getItem(progressStorageKey);
@@ -137,7 +222,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       setTokenInput(matchingSchedule.token);
       setSecondsLeft(matchingSchedule.durasiMenit * 60);
     }
-  }, [progressStorageKey, activePacket?.id, matchingSchedule?.id]);
+  }, [progressStorageKey, unsentSubmissionKey, activePacket?.id, matchingSchedule?.id]);
 
   // Persist active exam answers & remaining seconds in real-time against accidental refresh
   useEffect(() => {
@@ -217,7 +302,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [hasStarted, isSubmitted]);
 
-  // Subscribe to real-time Proctor commands & announcements via BroadcastChannel
+  // Subscribe to real-time Proctor commands & announcements via BroadcastChannel / Cloud Event Bus
   useEffect(() => {
     return subscribeLiveSyncEvents((msg) => {
       if (
@@ -246,17 +331,26 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       } else if (msg.type === 'PROCTOR_ACTION') {
         const isTargetStudent =
           msg.studentId === matchingStudent?.id ||
-          msg.nomorPeserta === matchingStudent?.nomorPeserta ||
-          msg.scheduleId === matchingSchedule?.id;
+          msg.nomorPeserta === matchingStudent?.nomorPeserta;
         if (!isTargetStudent) return;
 
         if (msg.action === 'RESET_LOGIN' || msg.action === 'RESET_SUBMIT') {
           setViolationCount(0);
           if (msg.action === 'RESET_SUBMIT') {
+            submitGuardRef.current = false;
             setIsSubmitted(false);
+            setIsSubmitting(false);
+            setCloudSyncState('SYNCED');
             if (progressStorageKey) {
               try {
                 localStorage.removeItem(progressStorageKey);
+              } catch {
+                // ignore
+              }
+            }
+            if (unsentSubmissionKey) {
+              try {
+                localStorage.removeItem(unsentSubmissionKey);
               } catch {
                 // ignore
               }
@@ -285,23 +379,30 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
         }
       }
     });
-  }, [matchingSchedule?.id, activePacket?.id, matchingStudent?.id, matchingStudent?.nomorPeserta]);
+  }, [
+    matchingSchedule?.id,
+    activePacket?.id,
+    matchingStudent?.id,
+    matchingStudent?.nomorPeserta,
+    progressStorageKey,
+    unsentSubmissionKey,
+  ]);
 
   // Keyboard Left/Right navigation for questions
   useEffect(() => {
-    if (!hasStarted || isSubmitted || !activePacket) return;
+    if (!hasStarted || isSubmitted || displayQuestions.length === 0) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
       if (e.key === 'ArrowRight') {
-        setCurrentIndex((i) => Math.min(activePacket.questions.length - 1, i + 1));
+        setCurrentIndex((i) => Math.min(displayQuestions.length - 1, i + 1));
       } else if (e.key === 'ArrowLeft') {
         setCurrentIndex((i) => Math.max(0, i - 1));
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hasStarted, isSubmitted, activePacket]);
+  }, [hasStarted, isSubmitted, displayQuestions.length]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -341,12 +442,74 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
     });
   };
 
-  const handleFinishExam = () => {
-    if (!activePacket) return;
+  const answeredTotalCount = activePacket
+    ? activePacket.questions.filter((q) => isQuestionAnswered(q)).length
+    : 0;
+  const unansweredTotalCount = activePacket
+    ? activePacket.questions.length - answeredTotalCount
+    : 0;
+  const doubtTotalCount = activePacket
+    ? activePacket.questions.filter((q) => doubtFlags[q.id]).length
+    : 0;
+
+  const verifyAndFlushSubmissionToCloud = useCallback(
+    async (sub: ExamSubmission): Promise<boolean> => {
+      if (!getSupabaseConfig()) {
+        setCloudSyncState('SYNCED');
+        return true;
+      }
+      setCloudSyncState('SYNCING');
+      const ok = await upsertSubmissionToSupabase(sub);
+      if (ok) {
+        if (unsentSubmissionKey) {
+          try {
+            localStorage.removeItem(unsentSubmissionKey);
+          } catch {
+            // ignore
+          }
+        }
+        if (progressStorageKey) {
+          try {
+            localStorage.removeItem(progressStorageKey);
+          } catch {
+            // ignore
+          }
+        }
+        setCloudSyncState('SYNCED');
+        return true;
+      }
+      setCloudSyncState('PENDING_RETRY');
+      return false;
+    },
+    [unsentSubmissionKey, progressStorageKey]
+  );
+
+  // Automatic background retry every 4 seconds if internet flickered during exam submission
+  useEffect(() => {
+    if (!isSubmitted || cloudSyncState !== 'PENDING_RETRY' || !lastSubmission) return;
+
+    const triggerRetry = () => {
+      verifyAndFlushSubmissionToCloud(lastSubmission);
+    };
+
+    const retryInterval = setInterval(triggerRetry, 4000);
+    window.addEventListener('online', triggerRetry);
+    return () => {
+      clearInterval(retryInterval);
+      window.removeEventListener('online', triggerRetry);
+    };
+  }, [isSubmitted, cloudSyncState, lastSubmission, verifyAndFlushSubmissionToCloud]);
+
+  const handleFinishExam = async () => {
+    if (!activePacket || submitGuardRef.current) return;
+    submitGuardRef.current = true;
+    setIsSubmitting(true);
+
     let pgScore = 0;
     let pgKompleksScore = 0;
     let benarSalahScore = 0;
     let esaiScore = 0;
+    let hasEssayQuestion = false;
     let sampleEssayAnswer = '';
     let sampleEssayPrompt = '';
     const itemResponses: Record<string, string> = {};
@@ -393,6 +556,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           pgKompleksScore += Math.round((correctPairs / pairs.length) * q.weight);
         }
       } else if (q.type === 'ESAI') {
+        hasEssayQuestion = true;
         const ans = (esaiAnswers[q.id] || '').trim();
         if (ans) {
           itemResponses[q.id] = ans;
@@ -407,10 +571,12 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       }
     });
 
-    const totalScore = pgScore + pgKompleksScore + benarSalahScore + esaiScore;
+    const rawTotal = pgScore + pgKompleksScore + benarSalahScore + esaiScore;
+    const totalScore = Math.round(rawTotal * 10) / 10;
     const studentId = matchingStudent?.id || 'std-sim';
     const studentName = matchingStudent?.nama || 'Santri Simulasi CBT';
     const nomorPeserta = matchingStudent?.nomorPeserta || `26-${activePacket.jenjang}-SIM`;
+    const studentKelas = matchingStudent?.kelas || activePacket.kelas;
     const scheduleId = matchingSchedule?.id || 'sch-sim';
 
     const submission: ExamSubmission = {
@@ -421,20 +587,20 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       studentName,
       nomorPeserta,
       jenjang: activePacket.jenjang,
-      kelas: activePacket.kelas,
+      kelas: studentKelas,
       mapel: activePacket.mapel,
-      submittedAt: 'Baru saja (Live Sync)',
+      submittedAt: formatWibTimestamp(),
       durationUsedMinutes: Math.max(
         1,
         Math.round(((matchingSchedule?.durasiMenit || 90) * 60 - secondsLeft) / 60)
       ),
-      pgScore,
-      pgKompleksScore,
-      benarSalahScore,
-      esaiScore,
+      pgScore: Math.round(pgScore * 10) / 10,
+      pgKompleksScore: Math.round(pgKompleksScore * 10) / 10,
+      benarSalahScore: Math.round(benarSalahScore * 10) / 10,
+      esaiScore: Math.round(esaiScore * 10) / 10,
       totalScore,
       kkm: activePacket.kkm,
-      isEsaiGraded: false,
+      isEsaiGraded: !hasEssayQuestion,
       violations: violationCount,
       essayQuestionPrompt: sampleEssayPrompt,
       essayAnswerSample: sampleEssayAnswer,
@@ -445,16 +611,26 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       studentId,
       studentName,
       nomorPeserta,
-      kelas: matchingStudent?.kelas || activePacket.kelas,
+      kelas: studentKelas,
       status: 'SELESAI',
-      answeredCount: activePacket.questions.length,
+      answeredCount: answeredTotalCount,
       totalQuestions: activePacket.questions.length,
       remainingMinutes: 0,
       violations: violationCount,
-      ipAddress: '192.168.10.88 (Live Tab)',
+      ipAddress: matchingStudent?.ruang || 'Ruang CBT',
       lastActivity: 'Selesai & Submit',
     };
 
+    // Save durable unsent copy locally FIRST before network transmission
+    if (unsentSubmissionKey) {
+      try {
+        localStorage.setItem(unsentSubmissionKey, JSON.stringify(submission));
+      } catch {
+        // ignore storage quota
+      }
+    }
+
+    onSubmitExamResult(submission);
     publishLiveSyncEvent({
       type: 'STUDENT_SUBMITTED',
       scheduleId,
@@ -464,33 +640,19 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       timestamp: Date.now(),
     });
 
-    if (progressStorageKey) {
-      try {
-        localStorage.removeItem(progressStorageKey);
-      } catch {
-        // ignore
-      }
-    }
+    await verifyAndFlushSubmissionToCloud(submission);
 
     setShowConfirmSubmitModal(false);
     setLastSubmission(submission);
     setIsSubmitted(true);
-    onSubmitExamResult(submission);
+    setIsSubmitting(false);
   };
 
-  forceSubmitRef.current = handleFinishExam;
+  forceSubmitRef.current = () => {
+    void handleFinishExam();
+  };
 
-  const answeredTotalCount = activePacket
-    ? activePacket.questions.filter((q) => isQuestionAnswered(q)).length
-    : 0;
-  const unansweredTotalCount = activePacket
-    ? activePacket.questions.length - answeredTotalCount
-    : 0;
-  const doubtTotalCount = activePacket
-    ? activePacket.questions.filter((q) => doubtFlags[q.id]).length
-    : 0;
-
-  // Broadcast live student progress across tabs whenever answers or violations change
+  // Broadcast live student progress across tabs & Cloud Proctor whenever answers or violations change
   useEffect(() => {
     if (!hasStarted || isSubmitted || !activePacket) return;
     const studentId = matchingStudent?.id || 'std-sim';
@@ -508,7 +670,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       totalQuestions: activePacket.questions.length,
       remainingMinutes: Math.max(1, Math.ceil(secondsLeft / 60)),
       violations: violationCount,
-      ipAddress: '192.168.10.88 (Live Tab)',
+      ipAddress: matchingStudent?.ruang || 'Ruang CBT',
       lastActivity: isLockedByAntiCheat
         ? 'Terkunci Anti-Cheat (Pindah Tab)'
         : `Menjawab ${answeredTotalCount}/${activePacket.questions.length} soal`,
@@ -539,8 +701,8 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
 
   if (!activePacket) return null;
 
-  // SCREEN 1: PRE-EXAM LOBBY
-  if (!hasStarted) {
+  // SCREEN 1: PRE-EXAM LOBBY (Only accessible for Admin/Teacher Simulation Mode)
+  if (!hasStarted && !isRealStudentSession) {
     return (
       <PortalLobbyScreen
         packets={packets}
@@ -551,6 +713,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
         tokenInput={tokenInput}
         onChangeTokenInput={setTokenInput}
         onStartExam={() => {
+          submitGuardRef.current = false;
           setCurrentIndex(0);
           setIsSubmitted(false);
           setHasStarted(true);
@@ -566,7 +729,14 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
       <PortalResultReview
         lastSubmission={lastSubmission}
         activePacket={activePacket}
+        isRealStudentSession={isRealStudentSession}
+        cloudSyncState={cloudSyncState}
+        onRetryCloudSync={() => {
+          void verifyAndFlushSubmissionToCloud(lastSubmission);
+        }}
         onRetryOtherPacket={() => {
+          if (isRealStudentSession) return;
+          submitGuardRef.current = false;
           setHasStarted(false);
           setIsSubmitted(false);
         }}
@@ -576,8 +746,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
   }
 
   // SCREEN 3: ACTIVE CBT WORKSPACE
-  const currentQuestion = activePacket.questions[currentIndex] || activePacket.questions[0];
-
+  const currentQuestion = displayQuestions[currentIndex] || displayQuestions[0];
   const displayedAnnouncement = liveAnnouncement ?? matchingSchedule?.announcement;
 
   return (
@@ -625,7 +794,8 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-indigo-200">
-              Peserta: {matchingStudent?.nama} ({matchingStudent?.nomorPeserta})
+              Peserta: {matchingStudent?.nama} ({matchingStudent?.nomorPeserta}
+              {matchingStudent?.kelas ? ` • ${matchingStudent.kelas}` : ''})
             </p>
           </div>
         </div>
@@ -658,13 +828,20 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
             <span>{formatTimer(secondsLeft)}</span>
           </div>
 
-          <button
-            onClick={onExitPortal}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Keluar Simulasi</span>
-          </button>
+          {isRealStudentSession ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 text-indigo-100 text-xs font-extrabold">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#55E5C7]" />
+              <span>{matchingStudent?.ruang || 'Mode Ujian Terkunci'}</span>
+            </span>
+          ) : (
+            <button
+              onClick={onExitPortal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Keluar Simulasi</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -674,14 +851,16 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           <ActiveQuestionCanvas
             currentQuestion={currentQuestion}
             currentIndex={currentIndex}
-            totalQuestions={activePacket.questions.length}
+            totalQuestions={displayQuestions.length}
             fontScale={fontScale}
+            acakOpsi={isShuffleOptionsEnabled}
+            studentSeed={studentSeed}
             pgAnswers={pgAnswers}
-            onSelectPg={(qId, label) => setPgAnswers({ ...pgAnswers, [qId]: label })}
+            onSelectPg={(qId, label) => setPgAnswers((prev) => ({ ...prev, [qId]: label }))}
             pgkAnswers={pgkAnswers}
             onTogglePgk={togglePgkOption}
             bsAnswers={bsAnswers}
-            onSelectBs={(qId, val) => setBsAnswers({ ...bsAnswers, [qId]: val })}
+            onSelectBs={(qId, val) => setBsAnswers((prev) => ({ ...prev, [qId]: val }))}
             matchingAnswers={matchingAnswers}
             onSelectMatch={(qId, pairId, rightText) =>
               setMatchingAnswers((prev) => ({
@@ -690,14 +869,14 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
               }))
             }
             esaiAnswers={esaiAnswers}
-            onChangeEsai={(qId, val) => setEsaiAnswers({ ...esaiAnswers, [qId]: val })}
+            onChangeEsai={(qId, val) => setEsaiAnswers((prev) => ({ ...prev, [qId]: val }))}
             doubtFlags={doubtFlags}
             onToggleDoubt={(qId) =>
               setDoubtFlags((prev) => ({ ...prev, [qId]: !prev[qId] }))
             }
             onPrev={() => setCurrentIndex((i) => Math.max(0, i - 1))}
             onNext={() =>
-              setCurrentIndex((i) => Math.min(activePacket.questions.length - 1, i + 1))
+              setCurrentIndex((i) => Math.min(displayQuestions.length - 1, i + 1))
             }
             onOpenConfirmSubmit={() => setShowConfirmSubmitModal(true)}
           />
@@ -705,6 +884,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
 
         <QuestionMatrixSidebar
           activePacket={activePacket}
+          questions={displayQuestions}
           currentIndex={currentIndex}
           onSelectIndex={setCurrentIndex}
           isQuestionAnswered={isQuestionAnswered}
@@ -713,6 +893,7 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           doubtTotalCount={doubtTotalCount}
           unansweredTotalCount={unansweredTotalCount}
           violationCount={violationCount}
+          isSubmitting={isSubmitting}
           onOpenConfirmSubmit={() => setShowConfirmSubmitModal(true)}
         />
       </div>
@@ -722,8 +903,11 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
           answeredTotalCount={answeredTotalCount}
           doubtTotalCount={doubtTotalCount}
           unansweredTotalCount={unansweredTotalCount}
+          isSubmitting={isSubmitting}
           onClose={() => setShowConfirmSubmitModal(false)}
-          onConfirmFinish={handleFinishExam}
+          onConfirmFinish={() => {
+            void handleFinishExam();
+          }}
         />
       )}
 
@@ -744,23 +928,22 @@ export const StudentExamPortal: React.FC<StudentExamPortalProps> = ({
               Ruang.
             </p>
             <div className="p-3.5 rounded-2xl bg-surface border border-border-subtle text-xs text-left space-y-1">
-              <div className="font-extrabold text-text-main">Cara Membuka Kunci:</div>
+              <div className="font-extrabold text-text-main">Prosedur Membuka Kunci:</div>
               <div className="text-text-muted">
-                1. Hubungi Pengawas Ruang atau buka tab <strong>Jadwal &amp; Live Proctoring</strong>{' '}
-                lalu klik tombol <strong>Buka Kunci</strong> pada nama Anda.
-              </div>
-              <div className="text-text-muted">
-                2. Atau gunakan tombol simulasi darurat di bawah ini:
+                Silakan angkat tangan dan lapor kepada <strong>Pengawas Ruang CBT</strong> agar
+                sesi ujian Anda dibuka kembali dari komputer pengawas.
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setViolationCount(0)}
-              className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold transition"
-            >
-              <Unlock className="w-4 h-4" />
-              <span>Buka Kunci Simulasi (Reset Pelanggaran)</span>
-            </button>
+            {!isRealStudentSession && (
+              <button
+                type="button"
+                onClick={() => setViolationCount(0)}
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#211955] hover:bg-[#2d2270] text-white text-xs font-extrabold transition"
+              >
+                <Unlock className="w-4 h-4" />
+                <span>Buka Kunci Simulasi (Khusus Mode Pratinjau Guru/Admin)</span>
+              </button>
+            )}
           </div>
         </div>
       )}

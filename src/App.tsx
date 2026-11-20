@@ -1338,37 +1338,47 @@ export function App() {
         className="relative z-10 max-w-[1440px] mx-auto min-h-[calc(100vh-3rem)] rounded-[34px] shadow-floating p-3 sm:p-4 lg:p-5 flex flex-col lg:flex-row items-stretch lg:items-start gap-4 lg:gap-5 transition-colors duration-300"
         style={{ backgroundColor: 'var(--bg-board-shell)' }}
       >
-        <FloatingSidebar
-          activeTab={activeTab}
-          userRole={userRole}
-          allowedTabs={effectiveAuthSession.allowedTabs}
-          onSelectTab={setActiveTab}
-          onSetUserRole={setUserRole}
-          onOpenStudentSim={() => handleOpenStudentSim()}
-          onOpenGuide={() => setShowGuideModal(true)}
-          onLogout={handleLogout}
-        />
+        {effectiveAuthSession.role !== 'siswa' && (
+          <FloatingSidebar
+            activeTab={activeTab}
+            userRole={userRole}
+            allowedTabs={effectiveAuthSession.allowedTabs}
+            onSelectTab={setActiveTab}
+            onSetUserRole={(nextRole) => {
+              if (effectiveAuthSession.role === 'siswa') return;
+              setUserRole(nextRole);
+            }}
+            onOpenStudentSim={() => handleOpenStudentSim()}
+            onOpenGuide={() => setShowGuideModal(true)}
+            onLogout={handleLogout}
+          />
+        )}
 
         {/* Inner Content Surface Canvas (#F6F8FC in light mode) */}
         <div className="flex-1 min-w-0 rounded-[28px] bg-surface p-4 sm:p-6 lg:p-7 flex flex-col justify-between space-y-6">
-          <TopHeaderBar
-            packets={scopedPackets}
-            students={scopedStudents}
-            selectedJenjang={effectiveSelectedJenjang}
-            onSelectJenjang={handleSelectJenjang}
-            onNavigateTab={setActiveTab}
-            userRole={userRole}
-            onSetUserRole={setUserRole}
-            darkMode={darkMode}
-            onToggleDarkMode={() => setDarkMode((d) => !d)}
-            authSession={effectiveAuthSession}
-            onChangeSelfPassword={handleChangeSelfPassword}
-            onLogout={handleLogout}
-          />
+          {effectiveAuthSession.role !== 'siswa' && (
+            <TopHeaderBar
+              packets={scopedPackets}
+              students={scopedStudents}
+              selectedJenjang={effectiveSelectedJenjang}
+              onSelectJenjang={handleSelectJenjang}
+              onNavigateTab={setActiveTab}
+              userRole={userRole}
+              onSetUserRole={(nextRole) => {
+                if (effectiveAuthSession.role === 'siswa') return;
+                setUserRole(nextRole);
+              }}
+              darkMode={darkMode}
+              onToggleDarkMode={() => setDarkMode((d) => !d)}
+              authSession={effectiveAuthSession}
+              onChangeSelfPassword={handleChangeSelfPassword}
+              onLogout={handleLogout}
+            />
+          )}
 
           {/* Active View Content */}
           <main className="flex-1">
-            {userRole === 'siswa' ? (
+            {userRole === 'siswa' || effectiveAuthSession.role === 'siswa' ? (
               <StudentExamPortal
                 packets={packets}
                 schedules={schedules}
@@ -1376,6 +1386,10 @@ export function App() {
                 settings={currentSettings}
                 initialPacketId={studentSimPacketId}
                 initialStudentId={studentSimStudentId}
+                isRealStudentSession={
+                  effectiveAuthSession.role === 'siswa' &&
+                  effectiveAuthSession.id !== 'std-dual-tab'
+                }
                 onExitPortal={() => {
                   if (effectiveAuthSession.role === 'siswa') {
                     handleLogout();
